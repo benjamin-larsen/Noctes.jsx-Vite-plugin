@@ -1,0 +1,22 @@
+{
+  "name": "webframework-plugin",
+  "version": "1.0.0",
+  "description": "Vite Plugin for WebFramework",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/benjamin-larsen/WebFramework-plugin.git"
+  },
+  "author": "Benjamin Larsen",
+  "license": "AGPL-3.0",
+  "bugs": {
+    "url": "https://github.com/benjamin-larsen/WebFramework-plugin/issues"
+  },
+  "homepage": "https://github.com/benjamin-larsen/WebFramework-plugin#readme",
+  "dependencies": {
+    "@babel/core": "^7.28.4"
+  }
+}
