@@ -75,21 +75,33 @@ export default function ({ types: t }, returnState = {}) {
     return {
         visitor: {
             JSXElement(path) {
+                const propExpression = []
                 const typeName = path.node.openingElement.name.name;
                 const isComponent = /^[A-Z]/.test(typeName)
+
+                for (const attr of path.node.openingElement.attributes) {
+                    const attrName = attr.name.name;
+
+                    propExpression.push(
+                        t.objectProperty(
+                            t.stringLiteral(attrName),
+                            t.isJSXExpressionContainer(attr.value) ? attr.value.expression : t.stringLiteral(attr.value.value)
+                        )
+                    )
+                }
 
                 if (isComponent) {
                     path.replaceWith(
                         t.callExpression(this.createComponent, [
                             standardComponents.has(typeName) ? t.stringLiteral(typeName) : t.identifier(typeName),
-                            t.objectExpression([])
+                            t.objectExpression(propExpression)
                         ])
                     )
                 } else {
                     path.replaceWith(
                         t.callExpression(this.createElement, [
                             t.stringLiteral(typeName),
-                            t.objectExpression([]),
+                            t.objectExpression(propExpression),
                             ...transformJSXChildren(path.node.children, this)
                         ])
                     )
