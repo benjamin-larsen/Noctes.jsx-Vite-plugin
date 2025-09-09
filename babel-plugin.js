@@ -3,67 +3,121 @@ const standardComponents = new Set([
     "Lazy"
 ])
 
+const escapeMap = {
+    "\\": "\\\\",
+    "\r": "\\r",
+    "\n": "\\n",
+    "\t": "\\t",
+    "\b": "\\b",
+    "\f": "\\f",
+    "\0": "\\0",
+    "\u2028": "\\u2028",
+    "\u2029": "\\u2029"
+}
+
+function escapeUnicodeHex(code) {
+    return `\\u${code.toString(16).toUpperCase()}`
+}
+
 export default function ({ types: t }, returnState = {}) {
 
-    // Perhaps push quasis as string in future
+    function sanatizeTemplateString(templateString) {
+        // Regex and Code from jsesc
+
+        return t.templateElement({
+            raw: templateString.replace(/([\uD800-\uDBFF][\uDC00-\uDFFF])|([\uD800-\uDFFF])|[^]/g, (char, pair, lone, index, str) => {
+                if (pair) {
+                    return escapeUnicodeHex(char.charCodeAt(0)) + escapeUnicodeHex(char.charCodeAt(1))
+                }
+
+                if (lone) {
+                    return escapeUnicodeHex(char.charCodeAt(0))
+                }
+
+                if (char === '`') {
+                    return "\\`"
+                }
+
+                if (escapeMap[char]) return escapeMap[char]
+
+                return char
+            })
+        })
+    }
+
     function transformJSXChildren(children, state) {
         const newChildren = [];
         let builder = null;
 
         function commitTemplate() {
-            if (builder !== null) {
-                if (builder.quasis.length <= builder.expressions.length) {
-                    builder.quasis.push(
-                        t.templateElement({ raw: "" })
-                    )
+            if (builder === null) return;
+
+            if (builder.quasis.length <= builder.expressions.length) {
+                builder.quasis.push("")
+            }
+
+            // Trim Start
+            builder.quasis[0] = builder.quasis[0].replace(/^\s+/, "").replace(/\\/g, "\\\\").replace(/`/g, "\\`")
+
+            // Trim End
+            builder.quasis[builder.quasis.length - 1] = builder.quasis[builder.quasis.length - 1].replace(/\s+$/, "")
+
+            if (builder.expressions.length === 0 && builder.quasis.join("") === '') {
+                // exclude empty strings
+            } else {
+                newChildren.push(t.callExpression(state.createTextNode, [
+                    t.templateLiteral(builder.quasis.map(str => sanatizeTemplateString(str)), builder.expressions)
+                ]))
+            }
+
+            builder = null
+        }
+
+        function ensureBuilder() {
+            if (builder === null) {
+                builder = {
+                    quasis: [],
+                    expressions: [],
+                    lastType: null
                 }
-
-                // Trim Start
-                const firstQuasis = builder.quasis[0].value
-                firstQuasis.raw = firstQuasis.raw.replace(/^\s+/, "")
-
-                // Trim End
-                const lastQuasis = builder.quasis[builder.quasis.length - 1].value
-                lastQuasis.raw = lastQuasis.raw.replace(/\s+$/, "")
-
-                if (builder.expressions.length === 0 && builder.quasis.map(x=>x.value.raw).join("") === '') {
-                    // exclude empty strings
-                } else {
-                    newChildren.push(t.callExpression(state.createTextNode, [
-                        t.templateLiteral(builder.quasis, builder.expressions)
-                    ]))
-                }
-                builder = null
             }
         }
 
         for (const child of children) {
             if (t.isJSXText(child)) {
-                if (builder === null) {
-                    builder = {
-                        quasis: [],
-                        expressions: []
-                    }
-                }
+                ensureBuilder()
 
-                builder.quasis.push(
-                    t.templateElement({ raw: child.value.replace(/\\/g, "\\\\").replace(/`/g, "\\`") })
-                )
+                if (builder.lastType === 'string') {
+                    // Must never have two sequential strings, only between expressions.
+                    builder.quasis[builder.quasis.length - 1] += child.value
+                } else {
+                    builder.lastType = "string"
+                    builder.quasis.push(
+                        child.value
+                    )
+                }
             } else if (t.isJSXExpressionContainer(child)) {
-                if (builder === null) {
-                    builder = {
-                        quasis: [
-                            t.templateElement({ raw: "" })
-                        ],
-                        expressions: []
-                    }
+                if (t.isJSXEmptyExpression(child.expression)) continue;
+
+                ensureBuilder()
+
+                // Must always have a quasis between every expression.
+                if (builder.lastType !== 'string') {
+                    builder.quasis.push("")
                 }
 
+                builder.lastType = "expression"
                 builder.expressions.push(child.expression)
             } else {
                 commitTemplate()
 
-                newChildren.push(child)
+                if (t.isJSXSpreadChild(child)) {
+                    newChildren.push(
+                        t.spreadElement(child.expression)
+                    )
+                } else {
+                    newChildren.push(child)
+                }
             }
         }
 
@@ -76,18 +130,43 @@ export default function ({ types: t }, returnState = {}) {
         visitor: {
             JSXElement(path) {
                 const propExpression = []
-                const typeName = path.node.openingElement.name.name;
+                let typeName = path.node.openingElement.name;
+
+                if (t.isJSXNamespacedName(typeName)) {
+                    typeName = typeName.name.name
+                    console.warn("Namespaces not supported yet.")
+                } else if (t.isJSXMemberExpression(typeName)) {
+                    throw Error("Member Expressions not supportyed yet.")
+                } else {
+                    typeName = typeName.name
+                }
+
                 const isComponent = /^[A-Z]/.test(typeName)
 
                 for (const attr of path.node.openingElement.attributes) {
-                    const attrName = attr.name.name;
-
-                    propExpression.push(
-                        t.objectProperty(
-                            t.stringLiteral(attrName),
-                            t.isJSXExpressionContainer(attr.value) ? attr.value.expression : t.stringLiteral(attr.value.value)
+                    if (t.isJSXSpreadAttribute(attr)) {
+                        propExpression.push(
+                            t.spreadElement(attr.argument)
                         )
-                    )
+                    } else if (t.isJSXAttribute(attr)) {
+                        let attrName = attr.name;
+
+                        if (t.isJSXNamespacedName(attrName)) {
+                            attrName = attrName.name.name
+                            console.warn("Namespaces not supported yet.")
+                        } else {
+                            attrName = attrName.name
+                        }
+
+                        if (attrName === 'className') attrName = 'class'
+
+                        propExpression.push(
+                            t.objectProperty(
+                                t.stringLiteral(attrName),
+                                t.isJSXExpressionContainer(attr.value) ? attr.value.expression : attr.value !== null ? t.stringLiteral(attr.value.value) : t.booleanLiteral(true)
+                            )
+                        )
+                    }
                 }
 
                 if (isComponent) {
@@ -107,11 +186,13 @@ export default function ({ types: t }, returnState = {}) {
                     )
                 }
             },
+
             JSXFragment(path) {
                 path.replaceWith(
                     t.arrayExpression(transformJSXChildren(path.node.children, this))
                 )
             },
+
             ExportDefaultDeclaration(path) {
                 if (!t.isObjectExpression(path.node.declaration)) {
                     if (t.isIdentifier(path.node.declaration)) {
@@ -128,6 +209,7 @@ export default function ({ types: t }, returnState = {}) {
                 ])
             }
         },
+
         pre(state) {
             this.createTextNode = state.scope.generateUidIdentifier("createTextNode")
             this.createElement = state.scope.generateUidIdentifier("createElement")
@@ -143,6 +225,7 @@ export default function ({ types: t }, returnState = {}) {
                 t.stringLiteral("webframework")
             ))
         },
+
         post() {
             returnState.componentObj = this.componentObj.name;
         }
