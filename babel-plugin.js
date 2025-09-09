@@ -222,7 +222,7 @@ export default function ({ types: t }, returnState = {}) {
                     t.importSpecifier(this.createElement, t.identifier("createElement")),
                     t.importSpecifier(this.createComponent, t.identifier("createComponent"))
                 ],
-                t.stringLiteral("webframework")
+                t.stringLiteral("noctes.jsx")
             ))
         },
 

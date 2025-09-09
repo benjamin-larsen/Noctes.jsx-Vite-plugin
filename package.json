@@ -1,21 +1,21 @@
 {
   "name": "noctes.jsx-vite-plugin",
-  "version": "1.0.0",
-  "description": "Vite Plugin for WebFramework",
+  "version": "1.0.1",
+  "description": "Vite Plugin for Noctes.jsx",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/benjamin-larsen/WebFramework-plugin.git"
+    "url": "git+https://github.com/benjamin-larsen/Noctes.jsx.git"
   },
   "author": "Benjamin Larsen",
   "license": "AGPL-3.0",
   "bugs": {
-    "url": "https://github.com/benjamin-larsen/WebFramework-plugin/issues"
+    "url": "https://github.com/benjamin-larsen/Noctes.jsx/issues"
   },
-  "homepage": "https://github.com/benjamin-larsen/WebFramework-plugin#readme",
+  "homepage": "https://github.com/benjamin-larsen/Noctes.jsx#readme",
   "dependencies": {
     "@babel/core": "^7.28.4",
     "@babel/plugin-syntax-jsx": "^7.27.1"
