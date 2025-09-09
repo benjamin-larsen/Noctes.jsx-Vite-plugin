@@ -1,5 +1,5 @@
 {
-  "name": "webframework-plugin",
+  "name": "noctes.jsx-vite-plugin",
   "version": "1.0.0",
   "description": "Vite Plugin for WebFramework",
   "main": "index.js",
