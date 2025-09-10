@@ -21,7 +21,7 @@ function escapeUnicodeHex(code) {
 
 export default function ({ types: t }, returnState = {}) {
 
-    function sanatizeTemplateString(templateString) {
+    function sanatizeTemplateString(templateString, qoute = '`') {
         // Regex and Code from jsesc
 
         return t.templateElement({
@@ -34,8 +34,8 @@ export default function ({ types: t }, returnState = {}) {
                     return escapeUnicodeHex(char.charCodeAt(0))
                 }
 
-                if (char === '`') {
-                    return "\\`"
+                if (char === qoute) {
+                    return "\\" + qoute
                 }
 
                 if (escapeMap[char]) return escapeMap[char]
@@ -57,17 +57,17 @@ export default function ({ types: t }, returnState = {}) {
             }
 
             // Trim Start
-            builder.quasis[0] = builder.quasis[0].replace(/^\s+/, "").replace(/\\/g, "\\\\").replace(/`/g, "\\`")
+            builder.quasis[0] = builder.quasis[0].replace(/^\s+/, "")
 
             // Trim End
             builder.quasis[builder.quasis.length - 1] = builder.quasis[builder.quasis.length - 1].replace(/\s+$/, "")
 
             if (builder.expressions.length === 0 && builder.quasis.join("") === '') {
                 // exclude empty strings
+            } else if (builder.expressions.length > 0) {
+              newChildren.push(t.templateLiteral(builder.quasis.map(str => sanatizeTemplateString(str, '`')), builder.expressions))
             } else {
-                newChildren.push(t.callExpression(state.createTextNode, [
-                    t.templateLiteral(builder.quasis.map(str => sanatizeTemplateString(str)), builder.expressions)
-                ]))
+              newChildren.push(t.stringLiteral(builder.quasis.join("")))
             }
 
             builder = null
@@ -81,6 +81,17 @@ export default function ({ types: t }, returnState = {}) {
                     lastType: null
                 }
             }
+        }
+
+        function isStringTemplate() {
+          if (builder === null) return false;
+          if (builder.lastType !== "string") return false;
+          if (builder.quasis[builder.quasis.length - 1].slice(-1) === "$") {
+            builder.quasis[builder.quasis.length - 1] = builder.quasis[builder.quasis.length - 1].slice(0, -1)
+            return true;
+          }
+
+          return false;
         }
 
         for (const child of children) {
@@ -98,6 +109,13 @@ export default function ({ types: t }, returnState = {}) {
                 }
             } else if (t.isJSXExpressionContainer(child)) {
                 if (t.isJSXEmptyExpression(child.expression)) continue;
+
+                if (!isStringTemplate()) {
+                  commitTemplate()
+                  newChildren.push(child.expression)
+
+                  continue;
+                }
 
                 ensureBuilder()
 
@@ -130,6 +148,8 @@ export default function ({ types: t }, returnState = {}) {
         visitor: {
             JSXElement(path) {
                 const propExpression = []
+
+                let componentExpression = null;
                 let typeName = path.node.openingElement.name;
 
                 if (t.isJSXNamespacedName(typeName)) {
@@ -158,6 +178,11 @@ export default function ({ types: t }, returnState = {}) {
                             attrName = attrName.name
                         }
 
+                        if (typeName === "component" && attrName === "is" && attr.value !== null) {
+                          componentExpression = t.isJSXExpressionContainer(attr.value) ? attr.value.expression : t.stringLiteral(attr.value.value)
+                          continue;
+                        }
+
                         if (attrName === 'className') attrName = 'class'
 
                         propExpression.push(
@@ -176,6 +201,15 @@ export default function ({ types: t }, returnState = {}) {
                             t.objectExpression(propExpression)
                         ])
                     )
+                } else if (typeName === "component") {
+                  if (!componentExpression) throw Error("You must specify 'is' property on Dynamic Components.")
+
+                  path.replaceWith(
+                      t.callExpression(this.createComponent, [
+                          componentExpression,
+                          t.objectExpression(propExpression)
+                      ])
+                  )
                 } else {
                     path.replaceWith(
                         t.callExpression(this.createElement, [
@@ -211,14 +245,12 @@ export default function ({ types: t }, returnState = {}) {
         },
 
         pre(state) {
-            this.createTextNode = state.scope.generateUidIdentifier("createTextNode")
             this.createElement = state.scope.generateUidIdentifier("createElement")
             this.createComponent = state.scope.generateUidIdentifier("createComponent")
             this.componentObj = state.scope.generateUidIdentifier("componentObj")
 
             state.path.unshiftContainer('body', t.importDeclaration(
                 [
-                    t.importSpecifier(this.createTextNode, t.identifier("createTextNode")),
                     t.importSpecifier(this.createElement, t.identifier("createElement")),
                     t.importSpecifier(this.createComponent, t.identifier("createComponent"))
                 ],
