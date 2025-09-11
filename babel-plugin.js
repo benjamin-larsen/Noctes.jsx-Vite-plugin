@@ -55,7 +55,7 @@ export default function ({ types: t }, returnState = {}) {
     })
   }
 
-  function transformJSXChildren(children, state) {
+  function transformJSXChildren(children) {
     const newChildren = [];
     let builder = null;
 
@@ -158,6 +158,7 @@ export default function ({ types: t }, returnState = {}) {
     visitor: {
       JSXElement(path) {
         const propExpression = []
+        const directives = []
 
         let componentExpression = null;
         let typeName = path.node.openingElement.name;
@@ -189,12 +190,19 @@ export default function ({ types: t }, returnState = {}) {
               attrName = attrName.name
             }
 
+            if (/^[A-Z]/.test(attrName) && !isComponent) {
+              directives.push(t.identifier(attrName))
+              continue;
+            }
+
             if (typeName === "component" && attrName === "is" && attrValue !== null) {
               componentExpression = t.isJSXExpressionContainer(attrValue) ? attrValue.expression : t.stringLiteral(attrValue.value)
               continue;
             }
 
             if (attrName === 'className') attrName = 'class'
+
+            if (attrName === 'directives' && !isComponent) throw Error("Can't define property 'directives' on Element.")
 
             if (isEvent(attrName)) {
               if (attrValue === null || !t.isJSXExpressionContainer(attrValue)) throw Error("Invalid Event Listener: expected Function, found String.");
@@ -257,6 +265,15 @@ export default function ({ types: t }, returnState = {}) {
           }
         }
 
+        if (directives.length > 0) {
+          propExpression.push(
+            t.objectProperty(
+              t.stringLiteral("directives"),
+              t.arrayExpression(directives)
+            )
+          )
+        }
+
         if (isComponent) {
           path.replaceWith(
             t.callExpression(this.createComponent, [
@@ -278,7 +295,7 @@ export default function ({ types: t }, returnState = {}) {
             t.callExpression(this.createElement, [
               t.stringLiteral(typeName),
               t.objectExpression(propExpression),
-              ...transformJSXChildren(path.node.children, this)
+              ...transformJSXChildren(path.node.children)
             ])
           )
         }
@@ -286,7 +303,7 @@ export default function ({ types: t }, returnState = {}) {
 
       JSXFragment(path) {
         path.replaceWith(
-          t.arrayExpression(transformJSXChildren(path.node.children, this))
+          t.arrayExpression(transformJSXChildren(path.node.children))
         )
       },
 
