@@ -19,6 +19,16 @@ function escapeUnicodeHex(code) {
   return `\\u${code.toString(16).toUpperCase()}`
 }
 
+function isEvent(propName) {
+  if (propName.length < 3) return false;
+  if (propName[0] !== 'o') return false;
+  if (propName[1] !== 'n') return false;
+  if (propName.charCodeAt(2) < 65) return false;
+  if (propName.charCodeAt(2) > 90) return false;
+
+  return true;
+}
+
 export default function ({ types: t }, returnState = {}) {
 
   function sanatizeTemplateString(templateString, qoute = '`') {
@@ -170,6 +180,7 @@ export default function ({ types: t }, returnState = {}) {
             )
           } else if (t.isJSXAttribute(attr)) {
             let attrName = attr.name;
+            let attrValue = attr.value;
 
             if (t.isJSXNamespacedName(attrName)) {
               attrName = attrName.name.name
@@ -178,17 +189,69 @@ export default function ({ types: t }, returnState = {}) {
               attrName = attrName.name
             }
 
-            if (typeName === "component" && attrName === "is" && attr.value !== null) {
-              componentExpression = t.isJSXExpressionContainer(attr.value) ? attr.value.expression : t.stringLiteral(attr.value.value)
+            if (typeName === "component" && attrName === "is" && attrValue !== null) {
+              componentExpression = t.isJSXExpressionContainer(attrValue) ? attrValue.expression : t.stringLiteral(attrValue.value)
               continue;
             }
 
             if (attrName === 'className') attrName = 'class'
 
+            if (isEvent(attrName)) {
+              if (attrValue === null || !t.isJSXExpressionContainer(attrValue)) throw Error("Invalid Event Listener: expected Function, found String.");
+
+              let isFunction = t.isFunctionExpression(attrValue.expression) || t.isArrowFunctionExpression(attrValue.expression);
+              let isIdentifier = t.isIdentifier(attrValue.expression) || t.isMemberExpression(attrValue.expression) || t.isOptionalMemberExpression(attrValue.expression);
+
+              function bindFunctionCall() {
+                if (attrValue.expression.arguments.length > 0) {
+                  isFunction = true;
+                  attrValue.expression = t.callExpression(
+                    t.memberExpression(attrValue.expression.callee, t.identifier("bind")),
+                    [
+                      t.nullLiteral(),
+                      ...attrValue.expression.arguments
+                    ]
+                  );
+                } else {
+                  isIdentifier = true;
+                  attrValue.expression = attrValue.expression.callee;
+                }
+              }
+
+              if (t.isCallExpression(attrValue.expression)) {
+                const callee = attrValue.expression.callee;
+                if (t.isMemberExpression(callee)) {
+                  if (t.isIdentifier(callee.property) && callee.property.name === 'apply') {
+                    isFunction = true;
+                    callee.property = t.identifier("bind");
+                    attrValue.expression.arguments = [
+                      attrValue.expression.arguments[0],
+                      t.spreadElement(attrValue.expression.arguments[1])
+                    ]
+                  } else if (t.isIdentifier(callee.property) && callee.property.name === 'call') {
+                    isFunction = true;
+                    callee.property = t.identifier("bind");
+                  } else if (t.isIdentifier(callee.property) && callee.property.name === 'bind') {
+                    isFunction = true;
+                  } else {
+                    bindFunctionCall()
+                  }
+                } else {
+                  bindFunctionCall()
+                }
+              }
+
+              if (isFunction) {
+                console.warn("Event Listeners should be a Reference to a Function, as inline may cause Worse Performance.")
+              } else if (!isIdentifier) {
+                throw Error("Invalid Event Listener: expected Function.")
+              }
+            }
+
             propExpression.push(
               t.objectProperty(
                 t.stringLiteral(attrName),
-                t.isJSXExpressionContainer(attr.value) ? attr.value.expression : attr.value !== null ? t.stringLiteral(attr.value.value) : t.booleanLiteral(true)
+                t.isJSXExpressionContainer(attrValue) ? attrValue.expression : attrValue !== null ? t.stringLiteral(attrValue.value) : t.booleanLiteral(true)
               )
             )
           }
