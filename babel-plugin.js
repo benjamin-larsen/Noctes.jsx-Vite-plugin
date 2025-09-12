@@ -302,9 +302,18 @@ export default function ({ types: t }, returnState = {}) {
       },
 
       JSXFragment(path) {
-        path.replaceWith(
-          t.arrayExpression(transformJSXChildren(path.node.children))
-        )
+        const children = transformJSXChildren(path.node.children);
+
+        if (children.length === 1 && t.isSpreadElement(children[0])) {
+          // We expect that the Exprsesion of the Spread Element is an array therefore a Fragment.
+          path.replaceWith(
+            children[0].argument
+          )
+        } else {
+          path.replaceWith(
+            t.arrayExpression(children)
+          )
+        }
       },
 
       ExportDefaultDeclaration(path) {
