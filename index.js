@@ -6,7 +6,7 @@ export default function plugin() {
   let isDev = false;
 
   return {
-    name: 'web-framework',
+    name: 'noctes.jsx',
     enforce: "pre",
 
     configResolved(config) {
