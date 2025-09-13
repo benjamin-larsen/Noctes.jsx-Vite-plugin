@@ -6,7 +6,7 @@ export default function plugin() {
   let isDev = false;
 
   return {
-    name: 'noctes.jsx',
+    name: 'vite:noctes.jsx',
     enforce: "pre",
 
     configResolved(config) {
