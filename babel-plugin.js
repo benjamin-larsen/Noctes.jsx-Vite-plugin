@@ -156,9 +156,10 @@ export default function ({ types: t }, returnState = {}) {
 
   return {
     visitor: {
-      JSXElement(path) {
-        const propExpression = []
+      JSXElement(path, state) {
+        let propExpression = []
         const directives = []
+        let isStatic = true
 
         let componentExpression = null;
         let typeName = path.node.openingElement.name;
@@ -176,6 +177,7 @@ export default function ({ types: t }, returnState = {}) {
 
         for (const attr of path.node.openingElement.attributes) {
           if (t.isJSXSpreadAttribute(attr)) {
+            isStatic = false
             propExpression.push(
               t.spreadElement(attr.argument)
             )
@@ -256,6 +258,10 @@ export default function ({ types: t }, returnState = {}) {
               }
             }
 
+            if (t.isJSXExpressionContainer(attrValue)) {
+              isStatic = false
+            }
+
             propExpression.push(
               t.objectProperty(
                 t.stringLiteral(attrName),
@@ -266,6 +272,8 @@ export default function ({ types: t }, returnState = {}) {
         }
 
         if (directives.length > 0) {
+          isStatic = false
+
           propExpression.push(
             t.objectProperty(
               t.stringLiteral("directives"),
@@ -274,11 +282,28 @@ export default function ({ types: t }, returnState = {}) {
           )
         }
 
+        if (propExpression.length === 0) {
+          propExpression = t.nullLiteral()
+        } else if (isStatic) {
+          const id = state.file.path.scope.generateUidIdentifier("hoisted");
+
+          state.file.path.unshiftContainer('body', t.variableDeclaration("const", [
+            t.variableDeclarator(
+              id,
+              t.objectExpression(propExpression)
+            )
+          ]))
+
+          propExpression = id
+        } else {
+          propExpression = t.objectExpression(propExpression)
+        }
+
         if (isComponent) {
           path.replaceWith(
             t.callExpression(this.createComponent, [
               standardComponents.has(typeName) ? t.stringLiteral(typeName) : t.identifier(typeName),
-              t.objectExpression(propExpression)
+              propExpression
             ])
           )
         } else if (typeName === "component") {
@@ -287,14 +312,14 @@ export default function ({ types: t }, returnState = {}) {
           path.replaceWith(
             t.callExpression(this.createComponent, [
               componentExpression,
-              t.objectExpression(propExpression)
+              propExpression
             ])
           )
         } else {
           path.replaceWith(
             t.callExpression(this.createElement, [
               t.stringLiteral(typeName),
-              t.objectExpression(propExpression),
+              propExpression,
               ...transformJSXChildren(path.node.children)
             ])
           )
