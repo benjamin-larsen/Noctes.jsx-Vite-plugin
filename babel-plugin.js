@@ -1,7 +1,4 @@
-// Find better way to do this
-const standardComponents = new Set([
-  "Lazy"
-])
+import standardComponents from 'noctes.jsx/framework/standardComponents/index.js'
 
 const escapeMap = {
   "\\": "\\\\",
@@ -302,7 +299,7 @@ export default function ({ types: t }, returnState = {}) {
         if (isComponent) {
           path.replaceWith(
             t.callExpression(this.createComponent, [
-              standardComponents.has(typeName) ? t.stringLiteral(typeName) : t.identifier(typeName),
+              standardComponents[typeName] ? t.stringLiteral(typeName) : t.identifier(typeName),
               propExpression
             ])
           )

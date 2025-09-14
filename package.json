@@ -17,6 +17,9 @@
     "url": "https://github.com/benjamin-larsen/Noctes.jsx/issues"
   },
   "homepage": "https://github.com/benjamin-larsen/Noctes.jsx#readme",
+  "peerDependencies": {
+    "noctes.jsx": ">=0.2.0"
+  },
   "dependencies": {
     "@babel/core": "^7.28.4",
     "@babel/plugin-syntax-jsx": "^7.27.1"
