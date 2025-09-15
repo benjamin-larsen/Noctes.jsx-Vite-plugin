@@ -164,6 +164,7 @@ export default function ({ types: t }, returnState = {}) {
         let propExpression = []
         const directives = []
         let isStatic = true
+        let hasKey = false
 
         let componentExpression = null;
         let typeName = path.node.openingElement.name;
@@ -209,6 +210,8 @@ export default function ({ types: t }, returnState = {}) {
             if (attrName === 'className') attrName = 'class'
 
             if (attrName === 'directives' && !isComponent) throw Error("Can't define property 'directives' on Element.")
+
+            if (attrName === 'key') hasKey = true
 
             if (isEvent(attrName)) {
               if (attrValue === null || !t.isJSXExpressionContainer(attrValue)) throw Error("Invalid Event Listener: expected Function, found String.");
@@ -284,6 +287,38 @@ export default function ({ types: t }, returnState = {}) {
               t.arrayExpression(directives)
             )
           )
+        }
+
+        if (!hasKey) {
+          const symbol = t.callExpression(
+            t.identifier("Symbol"),
+            []
+          )
+
+          if (isStatic) {
+            propExpression.push(
+              t.objectProperty(
+                t.stringLiteral("key"),
+                symbol
+              )
+            )
+          } else {
+            const id = state.file.path.scope.generateUidIdentifier("key");
+
+            state.file.path.unshiftContainer('body', t.variableDeclaration("const", [
+              t.variableDeclarator(
+                id,
+                symbol
+              )
+            ]))
+
+            propExpression.push(
+              t.objectProperty(
+                t.stringLiteral("key"),
+                id
+              )
+            )
+          }
         }
 
         if (propExpression.length === 0) {
