@@ -51,6 +51,13 @@ export default function ({ types: t }, returnState = {}) {
       })
     })
   }
+  
+  function isLiteral(node) {
+    if (t.isTemplateLiteral(node)) {
+      return node.expressions.length === 0
+    }
+    return t.isLiteral(node)
+  }
 
   function transformJSXChildren(children) {
     const newChildren = [];
@@ -255,7 +262,7 @@ export default function ({ types: t }, returnState = {}) {
               }
             }
 
-            if (t.isJSXExpressionContainer(attrValue)) {
+            if (t.isJSXExpressionContainer(attrValue) && !isLiteral(attrValue.expression)) {
               isStatic = false
             }
 
