@@ -289,7 +289,7 @@ export default function ({ types: t }, returnState = {}) {
           )
         }
 
-        if (!hasKey) {
+        /*if (!hasKey) {
           const symbol = t.callExpression(
             t.identifier("Symbol"),
             []
@@ -319,7 +319,7 @@ export default function ({ types: t }, returnState = {}) {
               )
             )
           }
-        }
+        }*/
 
         if (propExpression.length === 0) {
           propExpression = t.nullLiteral()
