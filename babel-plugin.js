@@ -187,14 +187,14 @@ export default function ({ types: t }, returnState = {}) {
       slotsExpression[slotName] = childrenTransformed.length > 1 ? childrenTransformed : childrenTransformed[0]
     }
 
-    return t.objectExpression(
-      Object.entries(slotsExpression).map(
-        ([slot, value]) => t.objectProperty(
-          t.stringLiteral(slot),
-          value
-        )
+    const objectProps = Object.entries(slotsExpression).map(
+      ([slot, value]) => t.objectProperty(
+        t.stringLiteral(slot),
+        value
       )
     )
+
+    return objectProps.length > 0 ? t.objectExpression(objectProps) : t.nullLiteral()
   }
 
   return {
