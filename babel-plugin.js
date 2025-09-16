@@ -158,6 +158,45 @@ export default function ({ types: t }, returnState = {}) {
     return newChildren
   }
 
+  function transformSlots(children) {
+    const slotsExpression = {}
+
+    for (const child of children) {
+      if (t.isJSXText(child)) {
+        if (/^\s+$/g.test(child.value)) continue; // Allow to skip empty text
+      }
+      if (!t.isJSXElement(child)) throw Error("Can only have <slot> elements in Component.")
+      let typeName = child.openingElement.name;
+      let slotName = "default";
+
+      if (t.isJSXNamespacedName(typeName)) {
+        slotName = typeName.name.name
+        typeName = typeName.namespace.name
+      } else {
+        typeName = typeName.name
+      }
+      
+      if (typeName !== "slot") throw Error("Can only have <slot> elements in Component.")
+
+      if (slotsExpression[slotName]) throw Error(`Slot "${slotName}" already exists.`)
+
+      if (child.children.length === 0) throw Error(`Slot "${slotName}" is empty.`)
+
+      const childrenTransformed = transformJSXChildren(child.children)
+
+      slotsExpression[slotName] = childrenTransformed.length > 1 ? childrenTransformed : childrenTransformed[0]
+    }
+
+    return t.objectExpression(
+      Object.entries(slotsExpression).map(
+        ([slot, value]) => t.objectProperty(
+          t.stringLiteral(slot),
+          value
+        )
+      )
+    )
+  }
+
   return {
     visitor: {
       JSXElement(path, state) {
@@ -182,6 +221,7 @@ export default function ({ types: t }, returnState = {}) {
 
         for (const attr of path.node.openingElement.attributes) {
           if (t.isJSXSpreadAttribute(attr)) {
+            // No way of knowing if this has key, or is static. Document this.
             isStatic = false
             propExpression.push(
               t.spreadElement(attr.argument)
@@ -342,7 +382,8 @@ export default function ({ types: t }, returnState = {}) {
           path.replaceWith(
             t.callExpression(this.createComponent, [
               standardComponents[typeName] ? t.stringLiteral(typeName) : t.identifier(typeName),
-              propExpression
+              propExpression,
+              transformSlots(path.node.children)
             ])
           )
         } else if (typeName === "component") {
@@ -351,7 +392,8 @@ export default function ({ types: t }, returnState = {}) {
           path.replaceWith(
             t.callExpression(this.createComponent, [
               componentExpression,
-              propExpression
+              propExpression,
+              transformSlots(path.node.children)
             ])
           )
         } else {
