@@ -381,7 +381,7 @@ export default function ({ types: t }, returnState = {}) {
         if (isComponent) {
           path.replaceWith(
             t.callExpression(this.createComponent, [
-              standardComponents[typeName] ? t.stringLiteral(typeName) : t.identifier(typeName),
+              typeName === "Recursive" ? this.componentObj : standardComponents[typeName] ? t.stringLiteral(typeName) : t.identifier(typeName),
               propExpression,
               transformSlots(path.node.children)
             ])
@@ -420,22 +420,6 @@ export default function ({ types: t }, returnState = {}) {
             t.arrayExpression(children)
           )
         }
-      },
-
-      ExportDefaultDeclaration(path) {
-        if (!t.isObjectExpression(path.node.declaration)) {
-          if (t.isIdentifier(path.node.declaration)) {
-            this.componentObj = path.node.declaration
-          }
-          return;
-        }
-
-        path.replaceWithMultiple([
-          t.variableDeclaration("const", [
-            t.variableDeclarator(this.componentObj, path.node.declaration)
-          ]),
-          t.exportDefaultDeclaration(this.componentObj)
-        ])
       }
     },
 
@@ -451,6 +435,26 @@ export default function ({ types: t }, returnState = {}) {
         ],
         t.stringLiteral("noctes.jsx")
       ))
+
+      const self = this;
+
+      state.path.traverse({
+        ExportDefaultDeclaration(path) {
+          if (!t.isObjectExpression(path.node.declaration)) {
+            if (t.isIdentifier(path.node.declaration)) {
+              self.componentObj = path.node.declaration
+            }
+            return;
+          }
+
+          path.replaceWithMultiple([
+            t.variableDeclaration("const", [
+              t.variableDeclarator(self.componentObj, path.node.declaration)
+            ]),
+            t.exportDefaultDeclaration(self.componentObj)
+          ])
+        }
+      })
     },
 
     post() {
