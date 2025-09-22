@@ -79,7 +79,7 @@ export default function ({ types: t }, returnState = {}) {
           let line = lines[lineIndex].replace(/\r/g, "")
 
           if (lineIndex !== 0) {
-            line = line.replace(/^\s+/, "").replace(/\s+$/, "")
+            line = line.replace(/^\s+/, "")
           }
 
           if ((lineIndex === 0 && line !== "") || line.replace(/\s+/g, "") !== "") {
