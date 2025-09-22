@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@babel/core": "^7.28.4",
-    "@babel/plugin-syntax-jsx": "^7.27.1"
+    "@babel/plugin-syntax-jsx": "^7.27.1",
+    "entities": "5.0.0"
   }
 }

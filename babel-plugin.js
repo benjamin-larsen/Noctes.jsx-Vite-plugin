@@ -1,4 +1,5 @@
 import standardComponents from 'noctes.jsx/framework/standardComponents/index.js'
+import { decodeHTML } from 'entities'
 
 const escapeMap = {
   "\\": "\\\\",
@@ -63,18 +64,43 @@ export default function ({ types: t }, returnState = {}) {
     const newChildren = [];
     let builder = null;
 
-    function commitTemplate() {
+    function commitTemplate(isLast) {
       if (builder === null) return;
 
       if (builder.quasis.length <= builder.expressions.length) {
         builder.quasis.push("")
       }
 
-      // Trim Start
-      builder.quasis[0] = builder.quasis[0].replace(/^\s+/, "")
+      for (const index in builder.quasis) {
+        const lines = builder.quasis[index].split("\n");
+        let output = [];
+
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+          let line = lines[lineIndex].replace(/\r/g, "")
+
+          if (lineIndex !== 0) {
+            line = line.replace(/^\s+/, "").replace(/\s+$/, "")
+          }
+
+          if ((lineIndex === 0 && line !== "") || line.replace(/\s+/g, "") !== "") {
+            output.push(line)
+          }
+        }
+
+        builder.quasis[index] = output.join(" ").replace(/[\r\t\f\v ]+/g, " ");
+      }
 
       // Trim End
-      builder.quasis[builder.quasis.length - 1] = builder.quasis[builder.quasis.length - 1].replace(/\s+$/, "")
+      if (isLast) {
+        builder.quasis[builder.quasis.length - 1] = builder.quasis[builder.quasis.length - 1].replace(/\s+$/, "")
+      }
+
+      // Decode HTML Entities.
+      for (const index in builder.quasis) {
+        const str = builder.quasis[index];
+
+        builder.quasis[index] = decodeHTML(str)
+      }
 
       if (builder.expressions.length === 0 && builder.quasis.join("") === '') {
         // exclude empty strings
@@ -108,28 +134,35 @@ export default function ({ types: t }, returnState = {}) {
       return false;
     }
 
-    for (const child of children) {
+    for (const index in children) {
+      const child = children[index]
+
       if (t.isJSXText(child)) {
         ensureBuilder()
 
         if (builder.lastType === 'string') {
           // Must never have two sequential strings, only between expressions.
-          builder.quasis[builder.quasis.length - 1] += child.value
+          builder.quasis[builder.quasis.length - 1] += child.extra.raw
         } else {
           builder.lastType = "string"
           builder.quasis.push(
-            child.value
+            child.extra.raw
           )
         }
       } else if (t.isJSXExpressionContainer(child)) {
-        if (t.isJSXEmptyExpression(child.expression)) continue;
+        const isEmpty = t.isJSXEmptyExpression(child.expression);
 
         if (!isStringTemplate()) {
-          commitTemplate()
-          newChildren.push(child.expression)
+          commitTemplate(false)
+
+          if (!isEmpty) {
+            newChildren.push(child.expression)
+          }
 
           continue;
         }
+
+        if (isEmpty) continue;
 
         ensureBuilder()
 
@@ -141,7 +174,7 @@ export default function ({ types: t }, returnState = {}) {
         builder.lastType = "expression"
         builder.expressions.push(child.expression)
       } else {
-        commitTemplate()
+        commitTemplate(false)
 
         if (t.isJSXSpreadChild(child)) {
           newChildren.push(
@@ -153,7 +186,7 @@ export default function ({ types: t }, returnState = {}) {
       }
     }
 
-    commitTemplate()
+    commitTemplate(true)
 
     return newChildren
   }
