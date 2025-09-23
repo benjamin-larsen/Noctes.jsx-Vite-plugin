@@ -270,8 +270,17 @@ export default function ({ types: t }, returnState = {}) {
               attrName = attrName.name
             }
 
-            if (/^[A-Z]/.test(attrName) && !isComponent) {
-              directives.push(t.identifier(attrName))
+            if (/^n[A-Z]/.test(attrName) && !isComponent) {
+              directives.push(t.objectExpression([
+                t.objectProperty(
+                  t.identifier("dir"),
+                  t.identifier(attrName)
+                ),
+                t.objectProperty(
+                  t.identifier("value"),
+                  t.isJSXExpressionContainer(attrValue) ? attrValue.expression : attrValue !== null ? t.stringLiteral(attrValue.value) : t.nullLiteral()
+                )
+              ]))
               continue;
             }
 
@@ -281,8 +290,6 @@ export default function ({ types: t }, returnState = {}) {
             }
 
             if (attrName === 'className') attrName = 'class'
-
-            if (attrName === 'directives' && !isComponent) throw Error("Can't define property 'directives' on Element.")
 
             if (attrName === 'key') hasKey = true
 
@@ -349,17 +356,6 @@ export default function ({ types: t }, returnState = {}) {
               )
             )
           }
-        }
-
-        if (directives.length > 0) {
-          isStatic = false
-
-          propExpression.push(
-            t.objectProperty(
-              t.stringLiteral("directives"),
-              t.arrayExpression(directives)
-            )
-          )
         }
 
         /*if (!hasKey) {
@@ -430,13 +426,22 @@ export default function ({ types: t }, returnState = {}) {
             ])
           )
         } else {
-          path.replaceWith(
-            t.callExpression(this.createElement, [
-              t.stringLiteral(typeName),
-              propExpression,
-              ...transformJSXChildren(path.node.children)
-            ])
-          )
+          const el = t.callExpression(this.createElement, [
+            t.stringLiteral(typeName),
+            propExpression,
+            ...transformJSXChildren(path.node.children)
+          ]);
+
+          if (directives.length > 0) {
+            path.replaceWith(
+              t.callExpression(this.withDirectives, [
+                el,
+                t.arrayExpression(directives)
+              ])
+            )
+          } else {
+            path.replaceWith(el)
+          }
         }
       },
 
@@ -459,12 +464,14 @@ export default function ({ types: t }, returnState = {}) {
     pre(state) {
       this.createElement = state.scope.generateUidIdentifier("createElement")
       this.createComponent = state.scope.generateUidIdentifier("createComponent")
+      this.withDirectives = state.scope.generateUidIdentifier("withDirectives")
       this.componentObj = state.scope.generateUidIdentifier("componentObj")
 
       state.path.unshiftContainer('body', t.importDeclaration(
         [
           t.importSpecifier(this.createElement, t.identifier("createElement")),
-          t.importSpecifier(this.createComponent, t.identifier("createComponent"))
+          t.importSpecifier(this.createComponent, t.identifier("createComponent")),
+          t.importSpecifier(this.withDirectives, t.identifier("withDirectives"))
         ],
         t.stringLiteral("noctes.jsx")
       ))
