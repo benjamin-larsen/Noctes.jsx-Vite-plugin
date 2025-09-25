@@ -1,6 +1,6 @@
 {
   "name": "noctes.jsx-vite-plugin",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "Vite Plugin for Noctes.jsx",
   "main": "index.js",
   "type": "module",
@@ -18,7 +18,7 @@
   },
   "homepage": "https://github.com/benjamin-larsen/Noctes.jsx#readme",
   "peerDependencies": {
-    "noctes.jsx": ">=0.2.0"
+    "noctes.jsx": ">=1.0.0"
   },
   "dependencies": {
     "@babel/core": "^7.28.4",
