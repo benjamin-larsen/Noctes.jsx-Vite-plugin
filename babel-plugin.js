@@ -225,6 +225,14 @@ export default function ({ types: t }, returnState = {}) {
       
       const attributes = child.openingElement.attributes;
       const attrName = findAttribute(attributes, "name");
+      let attrParams = findAttribute(attributes, "params");
+
+      if (attrParams) {
+        const attrValue = attrParams.value;
+        if (t.isJSXExpressionContainer(attrValue)) throw Error("Slot Params must be a String of Params (same syntax as JS Functions).");
+
+        attrParams = parseParams(attrValue.value);
+      }
 
       let typeName = child.openingElement.name;
       let slotName = "default";
@@ -256,14 +264,22 @@ export default function ({ types: t }, returnState = {}) {
 
       slotsExpression[slotName] = {
         block: childrenTransformed.length > 1 ? t.arrayExpression(childrenTransformed) : childrenTransformed[0],
-        attrParams: null // For Future Release
+        attrParams: attrParams || []
       }
     }
 
     const objectProps = Object.entries(slotsExpression).map(
       ([slotName, slot]) => t.objectProperty(
         t.stringLiteral(slotName),
-        slot.block
+        t.functionExpression(
+          null,
+          slot.attrParams,
+          t.blockStatement(
+            [
+              t.returnStatement(slot.block)
+            ]
+          )
+        )
       )
     )
 
