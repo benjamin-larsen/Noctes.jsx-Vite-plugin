@@ -1,5 +1,6 @@
 import standardComponents from 'noctes.jsx/framework/standardComponents/index.js'
 import { decodeHTML } from 'entities'
+import parser from '@babel/parser'
 
 const escapeMap = {
   "\\": "\\\\",
@@ -28,7 +29,6 @@ function isEvent(propName) {
 }
 
 export default function ({ types: t }, returnState = {}) {
-
   function sanatizeTemplateString(templateString, qoute = '`') {
     // Regex and Code from jsesc
 
@@ -190,6 +190,29 @@ export default function ({ types: t }, returnState = {}) {
 
     return newChildren
   }
+  
+  function findAttribute(attributes, name) {
+    for (const attr of attributes) {
+      if (!t.isJSXAttribute(attr)) continue;
+
+      let attrName = attr.name;
+  
+      if (t.isJSXNamespacedName(attrName)) {
+        attrName = attrName.name.name
+      } else {
+        attrName = attrName.name
+      }
+
+      if (attrName === name) return attr;
+    }
+  }
+
+  function parseParams(paramString) {
+    const result = parser.parseExpression(`(${paramString})=>{}`);
+    if (!result) throw Error("Failed to parse Paramaters.");
+
+    return result.params;
+  }
 
   function transformSlots(children) {
     const slotsExpression = {}
@@ -199,13 +222,27 @@ export default function ({ types: t }, returnState = {}) {
         if (/^\s+$/g.test(child.value)) continue; // Allow to skip empty text
       }
       if (!t.isJSXElement(child)) throw Error("Can only have <slot> elements in Component.")
+      
+      const attributes = child.openingElement.attributes;
+      const attrName = findAttribute(attributes, "name");
+
       let typeName = child.openingElement.name;
       let slotName = "default";
 
       if (t.isJSXNamespacedName(typeName)) {
+        if (attrName)
+          throw Error("Can't have both name attribute and namespace on <slot>.");
+
         slotName = typeName.name.name
         typeName = typeName.namespace.name
       } else {
+        if (attrName) {
+          if (attrName.value === null) throw Error("You must specify a Slot Name in <slot name=?>")
+          if (t.isJSXExpressionContainer(attrName.value)) throw Error("Dynamic Slot Names are not supported.");
+
+          slotName = attrName.value.value;
+        }
+
         typeName = typeName.name
       }
       
@@ -217,13 +254,16 @@ export default function ({ types: t }, returnState = {}) {
 
       const childrenTransformed = transformJSXChildren(child.children)
 
-      slotsExpression[slotName] = childrenTransformed.length > 1 ? childrenTransformed : childrenTransformed[0]
+      slotsExpression[slotName] = {
+        block: childrenTransformed.length > 1 ? t.arrayExpression(childrenTransformed) : childrenTransformed[0],
+        attrParams: null // For Future Release
+      }
     }
 
     const objectProps = Object.entries(slotsExpression).map(
-      ([slot, value]) => t.objectProperty(
-        t.stringLiteral(slot),
-        value
+      ([slotName, slot]) => t.objectProperty(
+        t.stringLiteral(slotName),
+        slot.block
       )
     )
 
