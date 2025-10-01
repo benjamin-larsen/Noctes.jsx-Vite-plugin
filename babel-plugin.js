@@ -214,7 +214,7 @@ export default function ({ types: t }, returnState = {}) {
     return result.params;
   }
 
-  function transformSlots(children) {
+  function transformSlots(children, self) {
     const slotsExpression = {}
 
     for (const child of children) {
@@ -271,14 +271,19 @@ export default function ({ types: t }, returnState = {}) {
     const objectProps = Object.entries(slotsExpression).map(
       ([slotName, slot]) => t.objectProperty(
         t.stringLiteral(slotName),
-        t.functionExpression(
-          null,
-          slot.attrParams,
-          t.blockStatement(
-            [
-              t.returnStatement(slot.block)
-            ]
-          )
+        t.callExpression(
+          self.withContext,
+          [
+            t.functionExpression(
+              null,
+              slot.attrParams,
+              t.blockStatement(
+                [
+                  t.returnStatement(slot.block)
+                ]
+              )
+            )
+          ]
         )
       )
     )
@@ -468,7 +473,7 @@ export default function ({ types: t }, returnState = {}) {
             t.callExpression(this.createComponent, [
               typeName === "Recursive" ? this.componentObj : standardComponents[typeName] ? t.stringLiteral(typeName) : t.identifier(typeName),
               propExpression,
-              transformSlots(path.node.children)
+              transformSlots(path.node.children, this)
             ])
           )
         } else if (typeName === "component") {
@@ -478,7 +483,7 @@ export default function ({ types: t }, returnState = {}) {
             t.callExpression(this.createComponent, [
               componentExpression,
               propExpression,
-              transformSlots(path.node.children)
+              transformSlots(path.node.children, this)
             ])
           )
         } else {
@@ -521,13 +526,15 @@ export default function ({ types: t }, returnState = {}) {
       this.createElement = state.scope.generateUidIdentifier("createElement")
       this.createComponent = state.scope.generateUidIdentifier("createComponent")
       this.withDirectives = state.scope.generateUidIdentifier("withDirectives")
+      this.withContext = state.scope.generateUidIdentifier("withContext")
       this.componentObj = state.scope.generateUidIdentifier("componentObj")
 
       state.path.unshiftContainer('body', t.importDeclaration(
         [
           t.importSpecifier(this.createElement, t.identifier("createElement")),
           t.importSpecifier(this.createComponent, t.identifier("createComponent")),
-          t.importSpecifier(this.withDirectives, t.identifier("withDirectives"))
+          t.importSpecifier(this.withDirectives, t.identifier("withDirectives")),
+          t.importSpecifier(this.withContext, t.identifier("withContext"))
         ],
         t.stringLiteral("noctes.jsx")
       ))
