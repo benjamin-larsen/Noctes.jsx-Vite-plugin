@@ -1,4 +1,4 @@
-import standardComponents from './WebFramework/framework/standardComponents/index.js'
+import standardComponents from 'noctes.jsx/framework/standardComponents/index.js'
 import { decodeHTML } from 'entities'
 import parser from '@babel/parser'
 
