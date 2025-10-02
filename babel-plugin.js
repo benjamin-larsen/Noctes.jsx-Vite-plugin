@@ -1,4 +1,4 @@
-import standardComponents from 'noctes.jsx/framework/standardComponents/index.js'
+import standardComponents from './WebFramework/framework/standardComponents/index.js'
 import { decodeHTML } from 'entities'
 import parser from '@babel/parser'
 
@@ -207,11 +207,32 @@ export default function ({ types: t }, returnState = {}) {
     }
   }
 
-  function parseParams(paramString) {
-    const result = parser.parseExpression(`(${paramString})=>{}`);
-    if (!result) throw Error("Failed to parse Paramaters.");
+  function parseParams(paramString, file, loc) {
+    try {
+      const result = parser.parseExpression(`(${paramString})=>{}`);
 
-    return result.params;
+      return result.params;
+    } catch (e) {
+      if (e.loc) {
+        const location = {
+          /**
+           * Offset source line by error line, subtracting 1 because first line starts at 1.
+           */
+          line: e.loc.line + loc.start.line - 1,
+          /**
+           * Offset source column by error column if error line is on the first line. Because the first line doesn't start on first column.
+           * Set column to error column if not first line.
+           */
+          column: e.loc.line === 1 ? loc.start.column + e.loc.column : e.loc.column
+        }
+
+        const errMessage = `${e.message.replace(/\s*\(\d+:\d+\)$/, "")} (${location.line}:${location.column})`
+
+        throw file.buildCodeFrameError({
+          loc: { start: location }
+        }, errMessage);
+      }
+    }
   }
 
   function transformSlots(children, self) {
@@ -231,7 +252,7 @@ export default function ({ types: t }, returnState = {}) {
         const attrValue = attrParams.value;
         if (t.isJSXExpressionContainer(attrValue)) throw Error("Slot Params must be a String of Params (same syntax as JS Functions).");
 
-        attrParams = parseParams(attrValue.value);
+        attrParams = parseParams(attrValue.value, self.file, attrValue.loc);
       }
 
       let typeName = child.openingElement.name;
