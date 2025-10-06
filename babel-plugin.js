@@ -1,5 +1,6 @@
 import standardComponents from 'noctes.jsx/framework/standardComponents/index.js'
 import { decodeHTML } from 'entities'
+import { srcsetResolveTags, srcResolveTags } from "./constants.js"
 import parser from '@babel/parser'
 
 const escapeMap = {
@@ -28,7 +29,16 @@ function isEvent(propName) {
   return true;
 }
 
+// From Vite
+const externalRE = /^([a-z]+:)?\/\//
+const isExternalUrl = (url) => externalRE.test(url)
+
+const dataUrlRE = /^\s*data:/i
+const isDataUrl = (url) => dataUrlRE.test(url)
+
 export default function ({ types: t }, returnState = {}) {
+  const srcMap = new Map()
+
   function sanatizeTemplateString(templateString, qoute = '`') {
     // Regex and Code from jsesc
 
@@ -51,6 +61,121 @@ export default function ({ types: t }, returnState = {}) {
         return char
       })
     })
+  }
+
+  function _resolveSrc(rawUrl, state) {
+    let [, url = "", extra = ""] = rawUrl.match(/^([^#?]*)(#.*|\?.*)?$/)
+
+    if (!url || isDataUrl(rawUrl) || isExternalUrl(rawUrl)) return [rawUrl];
+    
+
+    if (srcMap.has(url)) {
+      const id = srcMap.get(url);
+
+      return extra ? [id, extra] : [id]
+    } else {
+      const id = state.file.path.scope.generateUidIdentifier("imported");
+      srcMap.set(url, id);
+
+      state.file.path.unshiftContainer('body', t.importDeclaration(
+        [
+          t.ImportDefaultSpecifier(id)
+        ],
+        t.stringLiteral(url + "?url")
+      ))
+
+      return extra ? [id, extra] : [id]
+    }
+  }
+
+  function resolveSrc(rawUrl, state) {
+    const resolved = _resolveSrc(rawUrl, state);
+
+    if (resolved.length === 1) {
+      return typeof resolved[0] === 'string' ? t.stringLiteral(resolved[0]) : resolved[0]
+    } else if (resolved.length === 2) {
+      return t.templateLiteral(
+        [
+          t.templateElement({ raw: "" }),
+          sanatizeTemplateString(resolved[1])
+        ],
+        [
+          resolved[0]
+        ]
+      )
+    }
+  }
+
+  function resolveSrcset(rawSet, state) {
+    const set = rawSet.split(",").map(candidate => {
+      const [url, ...descriptors] = candidate.trim().split(" ")
+
+      return {
+        url,
+        descriptor: descriptors.join(" ")
+      }
+    })
+
+    let quasis = [];
+    let expressions = [];
+    let lastType = null;
+
+    for (let index = 0; index < set.length; index++) {
+      const candidate = set[index];
+      const isLast = index === (set.length - 1);
+      const resolved = _resolveSrc(candidate.url, state);
+      
+      if (resolved.length === 1) {
+        if (typeof resolved[0] === 'string') {
+          if (lastType === 'string') {
+            quasis[quasis.length - 1] += resolved[0]
+          } else {
+            quasis.push(resolved[0])
+            lastType = 'string'
+          }
+        } else {
+          if (lastType !== 'string') {
+            quasis.push("")
+          }
+
+          lastType = 'expression'
+          expressions.push(resolved[0])
+        }
+      } else if (resolved.length === 2) {
+        if (lastType !== 'string') {
+          quasis.push("")
+        }
+
+        expressions.push(resolved[0])
+        quasis.push(resolved[1])
+        
+        lastType = 'string'
+      }
+
+      // Add descriptor
+      if (lastType === 'string') {
+        quasis[quasis.length - 1] += (" " + candidate.descriptor)
+      } else {
+        quasis.push(" " + candidate.descriptor)
+        lastType = 'string'
+      }
+
+      // Add comma seperator
+      if (!isLast) {
+        if (lastType === 'string') {
+          quasis[quasis.length - 1] += ","
+        } else {
+          quasis.push(",")
+          lastType = 'string'
+        }
+      }
+    }
+
+    if (lastType !== 'string') {
+      quasis.push("")
+    }
+
+    return t.templateLiteral(quasis.map(str => sanatizeTemplateString(str)), expressions);
   }
   
   function isLiteral(node) {
@@ -322,17 +447,19 @@ export default function ({ types: t }, returnState = {}) {
 
         let componentExpression = null;
         let typeName = path.node.openingElement.name;
+        let isComponent = false;
 
         if (t.isJSXNamespacedName(typeName)) {
-          typeName = typeName.name.name
-          console.warn("Namespaces not supported yet.")
+          typeName = `${typeName.namespace.name}:${typeName.name.name}`
         } else if (t.isJSXMemberExpression(typeName)) {
           throw Error("Member Expressions not supportyed yet.")
         } else {
           typeName = typeName.name
+          isComponent = /^[A-Z]/.test(typeName)
         }
 
-        const isComponent = /^[A-Z]/.test(typeName)
+        const srcsetTag = srcsetResolveTags[typeName] || []
+        const srcTag = srcResolveTags[typeName] || []
 
         for (const attr of path.node.openingElement.attributes) {
           if (t.isJSXSpreadAttribute(attr)) {
@@ -346,24 +473,23 @@ export default function ({ types: t }, returnState = {}) {
             let attrValue = attr.value;
 
             if (t.isJSXNamespacedName(attrName)) {
-              attrName = attrName.name.name
-              console.warn("Namespaces not supported yet.")
+              attrName = `${attrName.namespace.name}:${attrName.name.name}`
             } else {
               attrName = attrName.name
-            }
 
-            if (/^n[A-Z]/.test(attrName) && !isComponent) {
-              directives.push(t.objectExpression([
-                t.objectProperty(
-                  t.identifier("dir"),
-                  t.identifier(attrName)
-                ),
-                t.objectProperty(
-                  t.identifier("value"),
-                  t.isJSXExpressionContainer(attrValue) ? attrValue.expression : attrValue !== null ? t.stringLiteral(attrValue.value) : t.nullLiteral()
-                )
-              ]))
-              continue;
+              if (/^n[A-Z]/.test(attrName) && !isComponent) {
+                directives.push(t.objectExpression([
+                  t.objectProperty(
+                    t.identifier("dir"),
+                    t.identifier(attrName)
+                  ),
+                  t.objectProperty(
+                    t.identifier("value"),
+                    t.isJSXExpressionContainer(attrValue) ? attrValue.expression : attrValue !== null ? t.stringLiteral(attrValue.value) : t.nullLiteral()
+                  )
+                ]))
+                continue;
+              }
             }
 
             if (typeName === "component" && attrName === "is" && attrValue !== null) {
@@ -431,10 +557,24 @@ export default function ({ types: t }, returnState = {}) {
               isStatic = false
             }
 
+            if (attrValue === null) {
+              attrValue = t.booleanLiteral(true)
+            } else if (!t.isJSXExpressionContainer(attrValue)) {
+              if (srcsetTag === attrName) {
+                attrValue = resolveSrcset(attrValue.value, state)
+              } else if (srcTag.includes(attrName)) {
+                attrValue = resolveSrc(attrValue.value, state)
+              } else {
+                attrValue = t.stringLiteral(attrValue.value)
+              }
+            } else {
+              attrValue = attrValue.expression;
+            }
+
             propExpression.push(
               t.objectProperty(
                 t.stringLiteral(attrName),
-                t.isJSXExpressionContainer(attrValue) ? attrValue.expression : attrValue !== null ? t.stringLiteral(attrValue.value) : t.booleanLiteral(true)
+                attrValue
               )
             )
           }
