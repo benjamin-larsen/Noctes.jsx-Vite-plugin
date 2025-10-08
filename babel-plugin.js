@@ -361,7 +361,8 @@ export default function ({ types: t }, returnState = {}) {
   }
 
   function transformSlots(children, self) {
-    const slotsExpression = {}
+    const slotsExpression = []
+    const dupSet = new Set()
 
     for (const child of children) {
       if (t.isJSXText(child)) {
@@ -382,6 +383,7 @@ export default function ({ types: t }, returnState = {}) {
 
       let typeName = child.openingElement.name;
       let slotName = "default";
+      let isDynamic = false;
 
       if (t.isJSXNamespacedName(typeName)) {
         if (attrName)
@@ -392,9 +394,12 @@ export default function ({ types: t }, returnState = {}) {
       } else {
         if (attrName) {
           if (attrName.value === null) throw Error("You must specify a Slot Name in <slot name=?>")
-          if (t.isJSXExpressionContainer(attrName.value)) throw Error("Dynamic Slot Names are not supported.");
-
-          slotName = attrName.value.value;
+          if (t.isJSXExpressionContainer(attrName.value)) {
+            slotName = attrName.value.expression
+            isDynamic = true
+          } else {
+            slotName = attrName.value.value;
+          }
         }
 
         typeName = typeName.name
@@ -402,21 +407,28 @@ export default function ({ types: t }, returnState = {}) {
       
       if (typeName !== "slot") throw Error("Can only have <slot> elements in Component.")
 
-      if (slotsExpression[slotName]) throw Error(`Slot "${slotName}" already exists.`)
+      if (!isDynamic) {
+        if (dupSet.has(slotName)) throw Error(`Slot "${slotName}" already exists.`);
+        dupSet.add(slotName);
 
-      if (child.children.length === 0) throw Error(`Slot "${slotName}" is empty.`)
+        slotName = t.stringLiteral(slotName);
+      }
+
+      if (child.children.length === 0) throw Error(`${isDynamic ? 'Slot "' + slotName + '"' : "Dynamic Slot"} is empty.`)
 
       const childrenTransformed = transformJSXChildren(child.children)
 
-      slotsExpression[slotName] = {
+      slotsExpression.push({
+        name: slotName,
+        isDynamic,
         block: childrenTransformed.length > 1 ? t.arrayExpression(childrenTransformed) : childrenTransformed[0],
         attrParams: attrParams || []
-      }
+      })
     }
 
-    const objectProps = Object.entries(slotsExpression).map(
-      ([slotName, slot]) => t.objectProperty(
-        t.stringLiteral(slotName),
+    const objectProps = slotsExpression.map(
+      (slot) => t.objectProperty(
+        slot.name,
         t.callExpression(
           self.withContext,
           [
@@ -430,7 +442,8 @@ export default function ({ types: t }, returnState = {}) {
               )
             )
           ]
-        )
+        ),
+        slot.isDynamic
       )
     )
 
