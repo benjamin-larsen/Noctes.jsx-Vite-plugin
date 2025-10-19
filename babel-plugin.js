@@ -360,15 +360,55 @@ export default function ({ types: t }, returnState = {}) {
     }
   }
 
+  function getDirectDefault(children) {
+    let shouldReturn = false;
+    let returnChildren = []
+
+    for (const child of children) {
+      if (t.isJSXText(child)) {
+        returnChildren.push(child)
+        if (!/^\s*$/g.test(child.value)) shouldReturn = true;
+      }
+
+      if (t.isJSXElement(child)) {
+        const typeName = child.openingElement.name;
+
+        if (t.isJSXNamespacedName(typeName)) {
+          if (typeName.namespace.name !== "slot") {
+            returnChildren.push(child)
+            shouldReturn = true;
+          }
+        } else if (typeName.name !== "slot") {
+          returnChildren.push(child)
+          shouldReturn = true;
+        }
+      }
+
+      if (t.isJSXFragment(child)) {
+        returnChildren.push(child)
+        shouldReturn = true;
+      }
+      if (t.isJSXSpreadChild(child)) {
+        returnChildren.push(child)
+        shouldReturn = true;
+      }
+      if (t.isJSXExpressionContainer(child)) {
+        returnChildren.push(child)
+        shouldReturn = true;
+      }
+    }
+
+    return shouldReturn ? returnChildren : null;
+  }
+
   function transformSlots(children, self) {
     const slotsExpression = []
     const dupSet = new Set()
 
+    let directDefault = getDirectDefault(children);
+
     for (const child of children) {
-      if (t.isJSXText(child)) {
-        if (/^\s+$/g.test(child.value)) continue; // Allow to skip empty text
-      }
-      if (!t.isJSXElement(child)) throw Error("Can only have <slot> elements in Component.")
+      if (!t.isJSXElement(child)) continue;
       
       const attributes = child.openingElement.attributes;
       const attrName = findAttribute(attributes, "name");
@@ -405,11 +445,13 @@ export default function ({ types: t }, returnState = {}) {
         typeName = typeName.name
       }
       
-      if (typeName !== "slot") throw Error("Can only have <slot> elements in Component.")
+      if (typeName !== "slot") continue;
 
       if (!isDynamic) {
         if (dupSet.has(slotName)) throw Error(`Slot "${slotName}" already exists.`);
         dupSet.add(slotName);
+
+        if (slotName === 'default' && directDefault) throw Error("Can't have explicit Default Slot alongside direct Default Slot.")
 
         slotName = t.stringLiteral(slotName);
       }
@@ -423,6 +465,17 @@ export default function ({ types: t }, returnState = {}) {
         isDynamic,
         block: childrenTransformed.length > 1 ? t.arrayExpression(childrenTransformed) : childrenTransformed[0],
         attrParams: attrParams || []
+      })
+    }
+
+    if (directDefault) {
+      const childrenTransformed = transformJSXChildren(directDefault)
+
+      slotsExpression.push({
+        name: t.stringLiteral("default"),
+        isDynamic: false,
+        block: childrenTransformed.length > 1 ? t.arrayExpression(childrenTransformed) : childrenTransformed[0],
+        attrParams: []
       })
     }
 
