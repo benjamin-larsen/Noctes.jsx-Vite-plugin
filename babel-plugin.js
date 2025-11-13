@@ -216,8 +216,10 @@ export default function ({ types: t }, returnState = {}) {
       }
 
       // Trim End
-      if (isLast) {
-        builder.quasis[builder.quasis.length - 1] = builder.quasis[builder.quasis.length - 1].replace(/\s+$/, "")
+      const lastLineIndex = builder.quasis.length - 1;
+
+      if (isLast && builder.quasis[lastLineIndex].replace(/\s+/g, "") === "") {
+        builder.quasis[lastLineIndex] = builder.quasis[lastLineIndex].replace(/\s+$/, "")
       }
 
       // Decode HTML Entities.
@@ -626,9 +628,9 @@ export default function ({ types: t }, returnState = {}) {
             if (attrValue === null) {
               attrValue = t.booleanLiteral(true)
             } else if (!t.isJSXExpressionContainer(attrValue)) {
-              if (srcsetTag === attrName) {
+              if (srcsetTag === attrName.toLowerCase()) {
                 attrValue = resolveSrcset(attrValue.value, state)
-              } else if (srcTag.includes(attrName)) {
+              } else if (srcTag.includes(attrName.toLowerCase())) {
                 attrValue = resolveSrc(attrValue.value, state)
               } else {
                 attrValue = t.stringLiteral(attrValue.value)
