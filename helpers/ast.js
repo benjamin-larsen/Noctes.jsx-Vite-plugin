@@ -1,4 +1,10 @@
 import { createHash } from "node:crypto"
+import t from '@babel/types';
+
+export function hoistNode(node, value) {
+  node._blockHoist = value;
+  return node;
+}
 
 const commonExclude = [
   'start',
@@ -10,7 +16,7 @@ const commonExclude = [
 ];
 
 export function astToJSON(ast, excludeNode) {
-  const json =JSON.stringify(ast, (key, value) => {
+  return JSON.stringify(ast, (key, value) => {
     if (excludeNode && value === excludeNode) {
       return undefined;
     }
@@ -19,11 +25,15 @@ export function astToJSON(ast, excludeNode) {
 
     return value;
   });
-
-  console.log(json)
-  return json;
 } 
 
 export function hashAst(ast, excludeNode) {
   return createHash('sha256').update(astToJSON(ast, excludeNode)).digest("hex")
+}
+
+export function isLiteral(node) {
+  if (t.isTemplateLiteral(node)) {
+    return node.expressions.length === 0
+  }
+  return t.isLiteral(node)
 }

@@ -1,8 +1,20 @@
 import t from '@babel/types';
+import { transformJSXChildren } from './JSXChildren.js';
 
-export default function transformJSXFragment(path, state) {
-  const isRender = path.scope.block === state.renderFn;
-  //console.dir(node.getFunctionParent().node, {depth:0})
+export default function transformJSXFragment(path) {
+  const { node } = path;
 
-  path.replaceWith(t.arrayExpression([]))
+  const children = transformJSXChildren(node.children);
+
+  if (
+    children.length === 1 &&
+    t.isSpreadElement(children[0])
+  ) {
+    path.replaceWith(children[0].argument);
+    return;
+  }
+
+  path.replaceWith(
+    t.arrayExpression(children)
+  )
 }

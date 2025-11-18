@@ -25,3 +25,9 @@ export const srcResolveTags = {
   radialGradient: ['href', 'xlink:href'],
   textPath: ['href', 'xlink:href'],
 }
+
+export const elementTypes = {
+  element: 0,
+  component: 1,
+  dynamicComponent: 2
+}

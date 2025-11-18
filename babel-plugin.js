@@ -1,6 +1,6 @@
 import transformJSXElement from './transformers/JSXElement.js';
 import transformJSXFragment from './transformers/JSXFragment.js';
-import { hashAst } from './helpers/astHash.js';
+import { hashAst, hoistNode } from './helpers/ast.js';
 
 export default function (api, returnState = {}) {
   const { types: t } = api;
@@ -16,7 +16,7 @@ export default function (api, returnState = {}) {
       this.withDirectives = scope.generateUidIdentifier("withDirectives")
       this.withContext = scope.generateUidIdentifier("withContext")
 
-      rootPath.unshiftContainer('body', t.importDeclaration(
+      rootPath.unshiftContainer('body', hoistNode(t.importDeclaration(
         [
           t.importSpecifier(this.createElement, t.identifier("createElement")),
           t.importSpecifier(this.createComponent, t.identifier("createComponent")),
@@ -24,40 +24,46 @@ export default function (api, returnState = {}) {
           t.importSpecifier(this.withContext, t.identifier("withContext"))
         ],
         t.stringLiteral("noctes.jsx")
-      ))
+      ), 3))
 
-      rootPath.traverse({
-        ExportDefaultDeclaration: (path) => {
-          const decleration = path.node.declaration;
+      this.srcMap = new Map();
 
-          if (t.isIdentifier(decleration)) {
-            this.componentObj = decleration;
-          } else if (t.isObjectExpression(decleration)) {
-            this.componentObj = scope.generateUidIdentifier("componentObj")
-
-            path.replaceWithMultiple([
-              t.variableDeclaration("const", [
-                t.variableDeclarator(this.componentObj, decleration)
-              ]),
-              t.exportDefaultDeclaration(this.componentObj)
-            ])
-          }
-        }
+      const exportDefault = rootPath.get("body").find(p => {
+        return p.isExportDefaultDeclaration()
       });
 
-      scope.crawl();
+      if (!exportDefault) return;
 
-      if (!this.componentObj) return;
+      hoistNode(exportDefault.node, -1);
 
-      const componentBinding = scope.getBinding(this.componentObj.name);
+      const exportDecleration = exportDefault.get("declaration");
+      let componentBinding;
+
+      if (exportDecleration.isIdentifier()) {
+        this.componentObj = exportDecleration.node;
+        (componentBinding = scope.getBinding(exportDecleration.node.name)) && (componentBinding = componentBinding.path.get("init"));
+      } else if (exportDecleration.isObjectExpression()) {
+        this.componentObj = scope.generateUidIdentifier("componentObj");
+
+        exportDefault.node.declaration = this.componentObj;
+
+        scope.push({
+          kind: "const",
+          id: this.componentObj,
+          init: exportDecleration.node,
+          _blockHoist: 0
+        })
+
+        componentBinding = exportDecleration;
+      }
+
       if (!componentBinding) return;
-      if (!componentBinding.path || !componentBinding.path.node) throw Error("Internal Error");
+      if (!componentBinding || !componentBinding.node) throw Error("Internal Error");
       if (
-        !t.isVariableDeclarator(componentBinding.path.node) ||
-        !t.isObjectExpression(componentBinding.path.node.init)
+        !t.isObjectExpression(componentBinding.node)
       ) return;
 
-      let renderPath = componentBinding.path.get("init").get("properties").findLast(p => {
+      let renderPath = componentBinding.get("properties").findLast(p => {
         const node = p.node;
 
         if (t.isSpreadElement(node)) return false;
@@ -74,8 +80,10 @@ export default function (api, returnState = {}) {
 
       if (t.isObjectMethod(renderFn) && renderFn.kind === "method") {
         renderFn = renderFn;
+        this.renderPath = renderPath;
       } else if (t.isObjectProperty(renderFn) && (t.isArrowFunctionExpression(renderFn.value) || t.isFunctionExpression(renderFn.value))) {
         renderFn = renderFn.value;
+        this.renderPath = renderPath.get("value");
       } else {
         renderFn = null;
       }
@@ -101,16 +109,18 @@ export default function (api, returnState = {}) {
         console.warn("Function Cache has been declared inside of Component, skipping automatic caching.")
       }
 
-      this.renderDef = renderPath.node;
+      const renderDef = renderPath.node;
       this.renderFn = renderFn;
 
       returnState.isComponent = true;
       returnState.componentObj = this.componentObj.name;
 
+      scope.crawl();
+
       // We calculate the AST Hash before transforming JSX, because the JSX elements may hoist properties, etc. which changes the AST even tho it's just related to render.
       returnState.astHash = hashAst(
         state.ast.program,
-        this.renderDef
+        renderDef
       );
     },
 
