@@ -6,7 +6,7 @@ import { transformJSXAttributeValue } from './JSXAttribute.js';
 import { sanatizeTemplateString } from '../helpers/templateString.js';
 import { transformFunction, shouldTransformFunction } from '../helpers/functionCache.js';
 import { resolveReactAlias } from '../react-alias.js';
-import { transformSlots } from './Slots.js';
+import { transformSlots, applySlotCache } from './Slots.js';
 import { throwError, TransformError } from '../helpers/error.js';
 
 function resolveElementType(tag) {
@@ -304,7 +304,7 @@ function transformProperties({
       if (isFunction) {
         attrValue = (hasCache && shouldTransformFunction({
           fn: attr.get("value.expression"),
-          eventName: attrName
+          errMsg: `Event Listener "${attrName}" referenced variable declared in render(), function is not able to be cached. This will incur a performance penalty.`
         }, state)) ? transformFunction(_attrValue.expression, state) : _attrValue.expression;
       } else if (isIdentifier) {
         attrValue = _attrValue.expression;
@@ -371,16 +371,19 @@ function transformComponent({
     errType: TransformError
   });
 
-  path.replaceWith(t.callExpression(state.createComponent, [
-    type === elementTypes.dynamicComponent ? componentExpression : name,
-    props,
-    transformSlots({
-      children: node.children,
-      nSlot,
-      path,
-      hasCache
-    }, state)
-  ]));
+  applySlotCache(
+    state, hasCache,
+    path.replaceWith(
+      t.callExpression(state.createComponent, [
+        type === elementTypes.dynamicComponent ? componentExpression : name,
+        props,
+        transformSlots({
+          children: node.children,
+          nSlot
+        }, state)
+      ])
+    )[0].get("arguments.2")
+  );
 }
 
 function transformElement({

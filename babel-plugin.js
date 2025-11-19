@@ -2,6 +2,7 @@ import transformJSXElement from './transformers/JSXElement.js';
 import transformJSXFragment from './transformers/JSXFragment.js';
 import { hashAst, hoistNode } from './helpers/ast.js';
 import { warn } from './helpers/error.js';
+import { cacheCheckpoint } from './constants.js';
 
 export default function (api, returnState = {}) {
   const { types: t } = api;
@@ -122,6 +123,7 @@ export default function (api, returnState = {}) {
 
       const renderDef = renderPath.node;
       this.renderFn = renderFn;
+      this.renderPath[cacheCheckpoint] = false;
 
       returnState.isComponent = true;
       returnState.componentObj = this.componentObj.name;

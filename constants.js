@@ -31,3 +31,5 @@ export const elementTypes = {
   component: 1,
   dynamicComponent: 2
 }
+
+export const cacheCheckpoint = Symbol("cache_checkpoint")

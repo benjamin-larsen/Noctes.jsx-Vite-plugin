@@ -3,7 +3,7 @@ import parser from '@babel/parser'
 import { findAttribute } from './JSXAttribute.js';
 import { transformJSXChildren } from './JSXChildren.js';
 import { throwError, TransformError } from '../helpers/error.js';
-import { shouldTransformSlot, transformFunction } from '../helpers/functionCache.js';
+import { shouldTransformFunction, transformFunction } from '../helpers/functionCache.js';
 
 function parseParams(paramString, file, loc) {
   try {
@@ -64,34 +64,34 @@ function getDirectDefault(children) {
   return shouldReturn ? returnChildren : null;
 }
 
-function createSlotFunction(slot, path, state, hasCache) {
-  const node = t.functionExpression(
-    null,
-    slot.attrParams,
-    t.blockStatement(
-      [
-        t.returnStatement(slot.block)
-      ]
-    )
-  );
+export function applySlotCache(state, hasCache, slots) {
+  if (!hasCache) return;
+  if (!slots.isObjectExpression()) return;
 
-  const withCtx = t.callExpression(
-    state.withContext,
-    [ node ]
-  );
+  slots.scope.crawl();
 
-  return (hasCache && shouldTransformSlot({
-    node,
-    path,
-    name: slot.isDynamic ? "Dynamic Slot" : 'Slot "' + slot.name.value + '"'
-  }, state)) ? transformFunction(withCtx, state) : withCtx;
+  for (const slot of slots.get("properties")) {
+    const { node } = slot;
+    const name = node.computed ? "Dynamic Slot" : `Slot "${node.key.value}"`;
+    const slotDecleration = slot.get("value");
+
+    const slotFn = slotDecleration.get("arguments.0");
+    const shouldTransform = shouldTransformFunction({
+      fn: slotFn,
+      errMsg: `${name} referenced variable declared in render(), slot is not able to be cached. This will incur a performance penalty.`
+    }, state);
+
+    if (shouldTransform) {
+      slotDecleration.replaceWith(
+        transformFunction(node.value, state)
+      )
+    }
+  }
 }
 
 export function transformSlots({
   children,
-  nSlot,
-  path,
-  hasCache
+  nSlot
 }, state) {
   const slotsExpression = []
   const dupSet = new Set()
@@ -241,7 +241,20 @@ export function transformSlots({
   const objectProps = slotsExpression.map(
     (slot) => t.objectProperty(
       slot.name,
-      createSlotFunction(slot, path, state, hasCache),
+      t.callExpression(
+        state.withContext,
+        [
+          t.functionExpression(
+            null,
+            slot.attrParams,
+            t.blockStatement(
+              [
+                t.returnStatement(slot.block)
+              ]
+            )
+          )
+        ]
+      ),
       slot.isDynamic
     )
   )
