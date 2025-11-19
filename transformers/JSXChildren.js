@@ -126,13 +126,14 @@ export function transformJSXChildren(children) {
       textParser.parseText(child.extra.raw);
     } else if (t.isJSXExpressionContainer(child)) {
       const { expression } = child;
+      const isEmpty = t.isJSXEmptyExpression(expression);
 
       if (textParser.isStringTemplate()) {
-        textParser.parseExpr(expression)
+        if (!isEmpty) textParser.parseExpr(expression);
       } else {
         textParser.commit(false)
 
-        if (!t.isJSXEmptyExpression(expression)) {
+        if (!isEmpty) {
           transformedChildren.push(expression);
         }
       }
