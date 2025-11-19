@@ -1,6 +1,7 @@
 import transformJSXElement from './transformers/JSXElement.js';
 import transformJSXFragment from './transformers/JSXFragment.js';
 import { hashAst, hoistNode } from './helpers/ast.js';
+import { warn } from './helpers/error.js';
 
 export default function (api, returnState = {}) {
   const { types: t } = api;
@@ -89,7 +90,12 @@ export default function (api, returnState = {}) {
       }
 
       if (renderFn === null) {
-        console.warn("Warning: Render was not a method. Treating file as non-component.")
+        warn({
+          loc: renderPath.isObjectMethod() ? renderPath.node.loc : renderPath.node.value.loc,
+          file: this.file,
+          warnLabel: "CorruptComponentDefinition",
+          message: "Render was not a method. Treating file as non-component."
+        })
         return;
       }
 
@@ -106,7 +112,12 @@ export default function (api, returnState = {}) {
         this.functionCache = scope.generateUidIdentifier("fnCache");
         renderFn.params.push(this.functionCache);
       } else {
-        console.warn("Function Cache has been declared inside of Component, skipping automatic caching.")
+        warn({
+          loc: renderFn.params[3].loc,
+          file: this.file,
+          warnLabel: "PerfWarning",
+          message: "Function Cache has been declared inside of Component, automatic caching has been disabled."
+        })
       }
 
       const renderDef = renderPath.node;

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto"
 
 export default function plugin() {
   let config = {};
+  const compMap = new Map();
 
   return {
     name: 'vite:noctes.jsx',
@@ -36,9 +37,17 @@ export default function plugin() {
         config.server &&
         config.server.hmr !== false
       ) {
+        const prevAST = compMap.get(id);
+        compMap.set(id, returnState.astHash);
+
+        const renderOnly = returnState.astHash === prevAST;
+
+        if (renderOnly) {
+          output.push(`${returnState.componentObj}._onlyRender = true`)
+        }
+
         const hmrId = createHash('sha256').update(id).digest('hex')
 
-        output.push(`${returnState.componentObj}._astHash = ${JSON.stringify(returnState.astHash)}`)
         output.push(`${returnState.componentObj}._hmrid = ${JSON.stringify(hmrId)}`)
         output.push(`window.HMR.componentMap.set(${JSON.stringify(hmrId)}, ${returnState.componentObj})`)
         output.push(

@@ -37,3 +37,9 @@ export function isLiteral(node) {
   }
   return t.isLiteral(node)
 }
+
+export function decodeCommentOverrides(node) {
+  if (!node.leadingComments) return [];
+
+  return node.leadingComments.map(c => c.value).join(" ").split(/\s+/);
+}

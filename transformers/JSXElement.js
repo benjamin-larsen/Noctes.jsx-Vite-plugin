@@ -274,7 +274,8 @@ function transformProperties({
     }
 
     if (isComponent && attrName === "nSlot") {
-
+      nSlot = attrNode;
+      continue;
     }
 
     if (t.isJSXExpressionContainer(_attrValue) && !isLiteral(_attrValue.expression)) {
@@ -350,7 +351,7 @@ function transformComponent({
   type
 }, state) {
   const { node } = path;
-  const { props, componentExpression } = transformProperties({
+  const { props, componentExpression, nSlot } = transformProperties({
     name,
     attributes: path.get("openingElement.attributes"),
     type,
@@ -373,7 +374,12 @@ function transformComponent({
   path.replaceWith(t.callExpression(state.createComponent, [
     type === elementTypes.dynamicComponent ? componentExpression : name,
     props,
-    transformSlots()
+    transformSlots({
+      children: node.children,
+      nSlot,
+      path,
+      hasCache
+    }, state)
   ]));
 }
 

@@ -1,5 +1,8 @@
 import t from '@babel/types';
 import { warn } from './error.js';
+import { decodeCommentOverrides } from './ast.js';
+import traverseLib from "@babel/traverse";
+const { default: traverse } = traverseLib;
 
 export function transformFunction(fn, state) {
   if (!state.functionCache) return fn;
@@ -35,6 +38,11 @@ export function shouldTransformFunction({
 
   let shouldTransform = true;
 
+  const commentCommands = decodeCommentOverrides(fn.node);
+  const hasOverride = commentCommands.includes("@cache") || commentCommands.includes("@no-cache");
+
+  if (hasOverride) return commentCommands.includes("@cache") ? true : false;
+
   body.traverse({
     Identifier(path) {
       if (!path.isReferencedIdentifier()) return;
@@ -60,6 +68,54 @@ export function shouldTransformFunction({
       }
     }
   })
+
+  return shouldTransform;
+}
+
+export function shouldTransformSlot({
+  node,
+  path,
+  name
+}, state) {
+  if (!state.functionCache) return false;
+
+  const ctxParam = state.renderPath.get("params.0");
+  let shouldTransform = true;
+
+  const local_sym = Symbol("local");
+
+  traverse(node, {
+    Identifier: {
+      enter(path) {
+        if (!path.isBindingIdentifier()) return;
+
+        path.scope.registerBinding("unknown", path, local_sym);
+      },
+
+      exit(path) {
+        if (!path.parentPath || !path.scope || !path.isReferencedIdentifier()) return;
+
+        const binding = path.scope.getBinding(path.node.name);
+        if (!binding || binding.path === local_sym) return;
+
+        if (binding.path === ctxParam) return;
+
+        const bindingParent = binding.path.find((path) => path == state.renderPath);
+
+        if (bindingParent) {
+          shouldTransform = false;
+          path.stop();
+
+          warn({
+            loc: path.node.loc,
+            file: state.file,
+            warnLabel: "PerfWarning",
+            message: `${name} referenced variable declared in render(), slot is not able to be cached. This will incur a performance penalty.`
+          })
+        }
+      }
+    }
+  }, path.scope, state, path);
 
   return shouldTransform;
 }
