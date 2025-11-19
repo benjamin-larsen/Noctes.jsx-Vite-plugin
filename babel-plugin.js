@@ -1,764 +1,24 @@
-import standardComponents from 'noctes.jsx/framework/standardComponents/index.js'
-import { decodeHTML } from 'entities'
-import { srcsetResolveTags, srcResolveTags } from "./constants.js"
-import parser from '@babel/parser'
-
-const escapeMap = {
-  "\\": "\\\\",
-  "\r": "\\r",
-  "\n": "\\n",
-  "\t": "\\t",
-  "\b": "\\b",
-  "\f": "\\f",
-  "\0": "\\0",
-  "\u2028": "\\u2028",
-  "\u2029": "\\u2029"
-}
-
-function escapeUnicodeHex(code) {
-  return `\\u${code.toString(16).toUpperCase()}`
-}
-
-function isEvent(propName) {
-  if (propName.length < 3) return false;
-  if (propName[0] !== 'o') return false;
-  if (propName[1] !== 'n') return false;
-  if (propName.charCodeAt(2) < 65) return false;
-  if (propName.charCodeAt(2) > 90) return false;
-
-  return true;
-}
-
-// From Vite
-const externalRE = /^([a-z]+:)?\/\//
-const isExternalUrl = (url) => externalRE.test(url)
-
-const dataUrlRE = /^\s*data:/i
-const isDataUrl = (url) => dataUrlRE.test(url)
-
-export default function ({ types: t }, returnState = {}) {
-  const srcMap = new Map()
-
-  function sanatizeTemplateString(templateString, qoute = '`') {
-    // Regex and Code from jsesc
-
-    return t.templateElement({
-      raw: templateString.replace(/([\uD800-\uDBFF][\uDC00-\uDFFF])|([\uD800-\uDFFF])|[^]/g, (char, pair, lone, index, str) => {
-        if (pair) {
-          return escapeUnicodeHex(char.charCodeAt(0)) + escapeUnicodeHex(char.charCodeAt(1))
-        }
-
-        if (lone) {
-          return escapeUnicodeHex(char.charCodeAt(0))
-        }
-
-        if (char === qoute) {
-          return "\\" + qoute
-        }
-
-        if (escapeMap[char]) return escapeMap[char]
-
-        return char
-      })
-    })
-  }
-
-  function _resolveSrc(rawUrl, state) {
-    let [, url = "", extra = ""] = rawUrl.match(/^([^#?]*)(#.*|\?.*)?$/)
-
-    if (!url || isDataUrl(rawUrl) || isExternalUrl(rawUrl)) return [rawUrl];
-    
-
-    if (srcMap.has(url)) {
-      const id = srcMap.get(url);
-
-      return extra ? [id, extra] : [id]
-    } else {
-      const id = state.file.path.scope.generateUidIdentifier("imported");
-      srcMap.set(url, id);
-
-      state.file.path.unshiftContainer('body', t.importDeclaration(
-        [
-          t.ImportDefaultSpecifier(id)
-        ],
-        t.stringLiteral(url + "?url")
-      ))
-
-      return extra ? [id, extra] : [id]
-    }
-  }
-
-  function resolveSrc(rawUrl, state) {
-    const resolved = _resolveSrc(rawUrl, state);
-
-    if (resolved.length === 1) {
-      return typeof resolved[0] === 'string' ? t.stringLiteral(resolved[0]) : resolved[0]
-    } else if (resolved.length === 2) {
-      return t.templateLiteral(
-        [
-          t.templateElement({ raw: "" }),
-          sanatizeTemplateString(resolved[1])
-        ],
-        [
-          resolved[0]
-        ]
-      )
-    }
-  }
-
-  function resolveSrcset(rawSet, state) {
-    const set = rawSet.split(",").map(candidate => {
-      const [url, ...descriptors] = candidate.trim().split(" ")
-
-      return {
-        url,
-        descriptor: descriptors.join(" ")
-      }
-    })
-
-    let quasis = [];
-    let expressions = [];
-    let lastType = null;
-
-    for (let index = 0; index < set.length; index++) {
-      const candidate = set[index];
-      const isLast = index === (set.length - 1);
-      const resolved = _resolveSrc(candidate.url, state);
-      
-      if (resolved.length === 1) {
-        if (typeof resolved[0] === 'string') {
-          if (lastType === 'string') {
-            quasis[quasis.length - 1] += resolved[0]
-          } else {
-            quasis.push(resolved[0])
-            lastType = 'string'
-          }
-        } else {
-          if (lastType !== 'string') {
-            quasis.push("")
-          }
-
-          lastType = 'expression'
-          expressions.push(resolved[0])
-        }
-      } else if (resolved.length === 2) {
-        if (lastType !== 'string') {
-          quasis.push("")
-        }
-
-        expressions.push(resolved[0])
-        quasis.push(resolved[1])
-        
-        lastType = 'string'
-      }
-
-      // Add descriptor
-      if (lastType === 'string') {
-        quasis[quasis.length - 1] += (" " + candidate.descriptor)
-      } else {
-        quasis.push(" " + candidate.descriptor)
-        lastType = 'string'
-      }
-
-      // Add comma seperator
-      if (!isLast) {
-        if (lastType === 'string') {
-          quasis[quasis.length - 1] += ","
-        } else {
-          quasis.push(",")
-          lastType = 'string'
-        }
-      }
-    }
-
-    if (lastType !== 'string') {
-      quasis.push("")
-    }
-
-    return t.templateLiteral(quasis.map(str => sanatizeTemplateString(str)), expressions);
-  }
-  
-  function isLiteral(node) {
-    if (t.isTemplateLiteral(node)) {
-      return node.expressions.length === 0
-    }
-    return t.isLiteral(node)
-  }
-
-  function transformJSXChildren(children) {
-    const newChildren = [];
-    let builder = null;
-
-    function commitTemplate(isLast) {
-      if (builder === null) return;
-
-      if (builder.quasis.length <= builder.expressions.length) {
-        builder.quasis.push("")
-      }
-
-      for (const index in builder.quasis) {
-        const lines = builder.quasis[index].split("\n");
-        let output = [];
-
-        for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-          let line = lines[lineIndex].replace(/\r/g, "")
-
-          if (lineIndex !== 0) {
-            line = line.replace(/^\s+/, "")
-          }
-
-          if ((lineIndex === 0 && line !== "") || line.replace(/\s+/g, "") !== "") {
-            output.push(line)
-          }
-        }
-
-        builder.quasis[index] = output.join(" ").replace(/[\r\t\f\v ]+/g, " ");
-      }
-
-      // Trim End
-      const lastLineIndex = builder.quasis.length - 1;
-
-      if (isLast && builder.quasis[lastLineIndex].replace(/\s+/g, "") === "") {
-        builder.quasis[lastLineIndex] = builder.quasis[lastLineIndex].replace(/\s+$/, "")
-      }
-
-      // Decode HTML Entities.
-      for (const index in builder.quasis) {
-        const str = builder.quasis[index];
-
-        builder.quasis[index] = decodeHTML(str)
-      }
-
-      if (builder.expressions.length === 0 && builder.quasis.join("") === '') {
-        // exclude empty strings
-      } else if (builder.expressions.length > 0) {
-        newChildren.push(t.templateLiteral(builder.quasis.map(str => sanatizeTemplateString(str, '`')), builder.expressions))
-      } else {
-        newChildren.push(t.stringLiteral(builder.quasis.join("")))
-      }
-
-      builder = null
-    }
-
-    function ensureBuilder() {
-      if (builder === null) {
-        builder = {
-          quasis: [],
-          expressions: [],
-          lastType: null
-        }
-      }
-    }
-
-    function isStringTemplate() {
-      if (builder === null) return false;
-      if (builder.lastType !== "string") return false;
-      if (builder.quasis[builder.quasis.length - 1].slice(-1) === "$") {
-        builder.quasis[builder.quasis.length - 1] = builder.quasis[builder.quasis.length - 1].slice(0, -1)
-        return true;
-      }
-
-      return false;
-    }
-
-    for (const index in children) {
-      const child = children[index]
-
-      if (t.isJSXText(child)) {
-        ensureBuilder()
-
-        if (builder.lastType === 'string') {
-          // Must never have two sequential strings, only between expressions.
-          builder.quasis[builder.quasis.length - 1] += child.extra.raw
-        } else {
-          builder.lastType = "string"
-          builder.quasis.push(
-            child.extra.raw
-          )
-        }
-      } else if (t.isJSXExpressionContainer(child)) {
-        const isEmpty = t.isJSXEmptyExpression(child.expression);
-
-        if (!isStringTemplate()) {
-          commitTemplate(false)
-
-          if (!isEmpty) {
-            newChildren.push(child.expression)
-          }
-
-          continue;
-        }
-
-        if (isEmpty) continue;
-
-        ensureBuilder()
-
-        // Must always have a quasis between every expression.
-        if (builder.lastType !== 'string') {
-          builder.quasis.push("")
-        }
-
-        builder.lastType = "expression"
-        builder.expressions.push(child.expression)
-      } else {
-        commitTemplate(false)
-
-        if (t.isJSXSpreadChild(child)) {
-          newChildren.push(
-            t.spreadElement(child.expression)
-          )
-        } else {
-          newChildren.push(child)
-        }
-      }
-    }
-
-    commitTemplate(true)
-
-    return newChildren
-  }
-  
-  function findAttribute(attributes, name) {
-    for (const attr of attributes) {
-      if (!t.isJSXAttribute(attr)) continue;
-
-      let attrName = attr.name;
-  
-      if (t.isJSXNamespacedName(attrName)) {
-        attrName = attrName.name.name
-      } else {
-        attrName = attrName.name
-      }
-
-      if (attrName === name) return attr;
-    }
-  }
-
-  function parseParams(paramString, file, loc) {
-    try {
-      const result = parser.parseExpression(`(${paramString})=>{}`);
-
-      return result.params;
-    } catch (e) {
-      if (e.loc) {
-        const location = {
-          /**
-           * Offset source line by error line, subtracting 1 because first line starts at 1.
-           */
-          line: e.loc.line + loc.start.line - 1,
-          /**
-           * Offset source column by error column if error line is on the first line. Because the first line doesn't start on first column.
-           * Set column to error column if not first line.
-           */
-          column: e.loc.line === 1 ? loc.start.column + e.loc.column : e.loc.column
-        }
-
-        const errMessage = `${e.message.replace(/\s*\(\d+:\d+\)$/, "")} (${location.line}:${location.column})`
-
-        throw file.buildCodeFrameError({
-          loc: { start: location }
-        }, errMessage);
-      }
-    }
-  }
-
-  function getDirectDefault(children) {
-    let shouldReturn = false;
-    let returnChildren = []
-
-    for (const child of children) {
-      if (t.isJSXText(child)) {
-        returnChildren.push(child)
-        if (!/^\s*$/g.test(child.value)) shouldReturn = true;
-      }
-
-      if (t.isJSXElement(child)) {
-        const typeName = child.openingElement.name;
-
-        if (t.isJSXNamespacedName(typeName)) {
-          if (typeName.namespace.name !== "slot") {
-            returnChildren.push(child)
-            shouldReturn = true;
-          }
-        } else if (typeName.name !== "slot") {
-          returnChildren.push(child)
-          shouldReturn = true;
-        }
-      }
-
-      if (t.isJSXFragment(child)) {
-        returnChildren.push(child)
-        shouldReturn = true;
-      }
-      if (t.isJSXSpreadChild(child)) {
-        returnChildren.push(child)
-        shouldReturn = true;
-      }
-      if (t.isJSXExpressionContainer(child)) {
-        returnChildren.push(child)
-        shouldReturn = true;
-      }
-    }
-
-    return shouldReturn ? returnChildren : null;
-  }
-
-  function transformSlots(children, self) {
-    const slotsExpression = []
-    const dupSet = new Set()
-
-    let directDefault = getDirectDefault(children);
-
-    for (const child of children) {
-      if (!t.isJSXElement(child)) continue;
-      
-      const attributes = child.openingElement.attributes;
-      const attrName = findAttribute(attributes, "name");
-      let attrParams = findAttribute(attributes, "params");
-
-      if (attrParams) {
-        const attrValue = attrParams.value;
-        if (t.isJSXExpressionContainer(attrValue)) throw Error("Slot Params must be a String of Params (same syntax as JS Functions).");
-
-        attrParams = parseParams(attrValue.value, self.file, attrValue.loc);
-      }
-
-      let typeName = child.openingElement.name;
-      let slotName = "default";
-      let isDynamic = false;
-
-      if (t.isJSXNamespacedName(typeName)) {
-        if (attrName)
-          throw Error("Can't have both name attribute and namespace on <slot>.");
-
-        slotName = typeName.name.name
-        typeName = typeName.namespace.name
-      } else {
-        if (attrName) {
-          if (attrName.value === null) throw Error("You must specify a Slot Name in <slot name=?>")
-          if (t.isJSXExpressionContainer(attrName.value)) {
-            slotName = attrName.value.expression
-            isDynamic = true
-          } else {
-            slotName = attrName.value.value;
-          }
-        }
-
-        typeName = typeName.name
-      }
-      
-      if (typeName !== "slot") continue;
-
-      if (!isDynamic) {
-        if (dupSet.has(slotName)) throw Error(`Slot "${slotName}" already exists.`);
-        dupSet.add(slotName);
-
-        if (slotName === 'default' && directDefault) throw Error("Can't have explicit Default Slot alongside direct Default Slot.")
-
-        slotName = t.stringLiteral(slotName);
-      }
-
-      if (child.children.length === 0) throw Error(`${isDynamic ? 'Slot "' + slotName + '"' : "Dynamic Slot"} is empty.`)
-
-      const childrenTransformed = transformJSXChildren(child.children)
-
-      slotsExpression.push({
-        name: slotName,
-        isDynamic,
-        block: childrenTransformed.length > 1 ? t.arrayExpression(childrenTransformed) : childrenTransformed[0],
-        attrParams: attrParams || []
-      })
-    }
-
-    if (directDefault) {
-      const childrenTransformed = transformJSXChildren(directDefault)
-
-      slotsExpression.push({
-        name: t.stringLiteral("default"),
-        isDynamic: false,
-        block: childrenTransformed.length > 1 ? t.arrayExpression(childrenTransformed) : childrenTransformed[0],
-        attrParams: []
-      })
-    }
-
-    const objectProps = slotsExpression.map(
-      (slot) => t.objectProperty(
-        slot.name,
-        t.callExpression(
-          self.withContext,
-          [
-            t.functionExpression(
-              null,
-              slot.attrParams,
-              t.blockStatement(
-                [
-                  t.returnStatement(slot.block)
-                ]
-              )
-            )
-          ]
-        ),
-        slot.isDynamic
-      )
-    )
-
-    return objectProps.length > 0 ? t.objectExpression(objectProps) : t.nullLiteral()
-  }
+import transformJSXElement from './transformers/JSXElement.js';
+import transformJSXFragment from './transformers/JSXFragment.js';
+import { hashAst, hoistNode } from './helpers/ast.js';
+import { warn } from './helpers/error.js';
+import { cacheCheckpoint } from './constants.js';
+
+export default function (api, returnState = {}) {
+  const { types: t } = api;
+
+  returnState.isComponent = false;
 
   return {
-    visitor: {
-      JSXElement(path, state) {
-        let propExpression = []
-        const directives = []
-        let isStatic = true
-        let hasKey = false
-
-        let componentExpression = null;
-        let typeName = path.node.openingElement.name;
-        let isComponent = false;
-
-        if (t.isJSXNamespacedName(typeName)) {
-          typeName = `${typeName.namespace.name}:${typeName.name.name}`
-        } else if (t.isJSXMemberExpression(typeName)) {
-          throw Error("Member Expressions not supportyed yet.")
-        } else {
-          typeName = typeName.name
-          isComponent = /^[A-Z]/.test(typeName)
-        }
-
-        const srcsetTag = srcsetResolveTags[typeName] || []
-        const srcTag = srcResolveTags[typeName] || []
-
-        for (const attr of path.node.openingElement.attributes) {
-          if (t.isJSXSpreadAttribute(attr)) {
-            // No way of knowing if this has key, or is static. Document this.
-            isStatic = false
-            propExpression.push(
-              t.spreadElement(attr.argument)
-            )
-          } else if (t.isJSXAttribute(attr)) {
-            let attrName = attr.name;
-            let attrValue = attr.value;
-
-            if (t.isJSXNamespacedName(attrName)) {
-              attrName = `${attrName.namespace.name}:${attrName.name.name}`
-            } else {
-              attrName = attrName.name
-
-              if (/^n[A-Z]/.test(attrName) && !isComponent) {
-                directives.push(t.objectExpression([
-                  t.objectProperty(
-                    t.identifier("dir"),
-                    t.identifier(attrName)
-                  ),
-                  t.objectProperty(
-                    t.identifier("value"),
-                    t.isJSXExpressionContainer(attrValue) ? attrValue.expression : attrValue !== null ? t.stringLiteral(attrValue.value) : t.nullLiteral()
-                  )
-                ]))
-                continue;
-              }
-            }
-
-            if (typeName === "component" && attrName === "is" && attrValue !== null) {
-              componentExpression = t.isJSXExpressionContainer(attrValue) ? attrValue.expression : t.stringLiteral(attrValue.value)
-              continue;
-            }
-
-            if (attrName === 'className') attrName = 'class'
-
-            if (attrName === 'key') hasKey = true
-
-            if (isEvent(attrName)) {
-              if (attrValue === null || !t.isJSXExpressionContainer(attrValue)) throw Error("Invalid Event Listener: expected Function, found String.");
-
-              let isFunction = t.isFunctionExpression(attrValue.expression) || t.isArrowFunctionExpression(attrValue.expression);
-              let isIdentifier = t.isIdentifier(attrValue.expression) || t.isMemberExpression(attrValue.expression) || t.isOptionalMemberExpression(attrValue.expression);
-
-              function bindFunctionCall() {
-                if (attrValue.expression.arguments.length > 0) {
-                  isFunction = true;
-                  attrValue.expression = t.callExpression(
-                    t.memberExpression(attrValue.expression.callee, t.identifier("bind")),
-                    [
-                      t.nullLiteral(),
-                      ...attrValue.expression.arguments
-                    ]
-                  );
-                } else {
-                  isIdentifier = true;
-                  attrValue.expression = attrValue.expression.callee;
-                }
-              }
-
-              if (t.isCallExpression(attrValue.expression)) {
-                const callee = attrValue.expression.callee;
-                if (t.isMemberExpression(callee)) {
-                  if (t.isIdentifier(callee.property) && callee.property.name === 'apply') {
-                    isFunction = true;
-                    callee.property = t.identifier("bind");
-                    attrValue.expression.arguments = [
-                      attrValue.expression.arguments[0],
-                      t.spreadElement(attrValue.expression.arguments[1])
-                    ]
-                  } else if (t.isIdentifier(callee.property) && callee.property.name === 'call') {
-                    isFunction = true;
-                    callee.property = t.identifier("bind");
-                  } else if (t.isIdentifier(callee.property) && callee.property.name === 'bind') {
-                    isFunction = true;
-                  } else {
-                    bindFunctionCall()
-                  }
-                } else {
-                  bindFunctionCall()
-                }
-              }
-
-              if (isFunction) {
-                console.warn("Event Listeners should be a Reference to a Function, as inline may cause Worse Performance.")
-              } else if (!isIdentifier) {
-                throw Error("Invalid Event Listener: expected Function.")
-              }
-            }
-
-            if (t.isJSXExpressionContainer(attrValue) && !isLiteral(attrValue.expression)) {
-              isStatic = false
-            }
-
-            if (attrValue === null) {
-              attrValue = t.booleanLiteral(true)
-            } else if (!t.isJSXExpressionContainer(attrValue)) {
-              if (srcsetTag === attrName.toLowerCase()) {
-                attrValue = resolveSrcset(attrValue.value, state)
-              } else if (srcTag.includes(attrName.toLowerCase())) {
-                attrValue = resolveSrc(attrValue.value, state)
-              } else {
-                attrValue = t.stringLiteral(attrValue.value)
-              }
-            } else {
-              attrValue = attrValue.expression;
-            }
-
-            propExpression.push(
-              t.objectProperty(
-                t.stringLiteral(attrName),
-                attrValue
-              )
-            )
-          }
-        }
-
-        /*if (!hasKey) {
-          const symbol = t.callExpression(
-            t.identifier("Symbol"),
-            []
-          )
-
-          if (isStatic) {
-            propExpression.push(
-              t.objectProperty(
-                t.stringLiteral("key"),
-                symbol
-              )
-            )
-          } else {
-            const id = state.file.path.scope.generateUidIdentifier("key");
-
-            state.file.path.unshiftContainer('body', t.variableDeclaration("const", [
-              t.variableDeclarator(
-                id,
-                symbol
-              )
-            ]))
-
-            propExpression.push(
-              t.objectProperty(
-                t.stringLiteral("key"),
-                id
-              )
-            )
-          }
-        }*/
-
-        if (propExpression.length === 0) {
-          propExpression = t.nullLiteral()
-        } else if (isStatic) {
-          const id = state.file.path.scope.generateUidIdentifier("hoisted");
-
-          state.file.path.unshiftContainer('body', t.variableDeclaration("const", [
-            t.variableDeclarator(
-              id,
-              t.objectExpression(propExpression)
-            )
-          ]))
-
-          propExpression = id
-        } else {
-          propExpression = t.objectExpression(propExpression)
-        }
-
-        if (isComponent) {
-          path.replaceWith(
-            t.callExpression(this.createComponent, [
-              typeName === "Recursive" ? this.componentObj : standardComponents[typeName] ? t.stringLiteral(typeName) : t.identifier(typeName),
-              propExpression,
-              transformSlots(path.node.children, this)
-            ])
-          )
-        } else if (typeName === "component") {
-          if (!componentExpression) throw Error("You must specify 'is' property on Dynamic Components.")
-
-          path.replaceWith(
-            t.callExpression(this.createComponent, [
-              componentExpression,
-              propExpression,
-              transformSlots(path.node.children, this)
-            ])
-          )
-        } else {
-          const el = t.callExpression(this.createElement, [
-            t.stringLiteral(typeName),
-            propExpression,
-            ...transformJSXChildren(path.node.children)
-          ]);
-
-          if (directives.length > 0) {
-            path.replaceWith(
-              t.callExpression(this.withDirectives, [
-                el,
-                t.arrayExpression(directives)
-              ])
-            )
-          } else {
-            path.replaceWith(el)
-          }
-        }
-      },
-
-      JSXFragment(path) {
-        const children = transformJSXChildren(path.node.children);
-
-        if (children.length === 1 && t.isSpreadElement(children[0])) {
-          // We expect that the Exprsesion of the Spread Element is an array therefore a Fragment.
-          path.replaceWith(
-            children[0].argument
-          )
-        } else {
-          path.replaceWith(
-            t.arrayExpression(children)
-          )
-        }
-      }
-    },
-
     pre(state) {
-      this.createElement = state.scope.generateUidIdentifier("createElement")
-      this.createComponent = state.scope.generateUidIdentifier("createComponent")
-      this.withDirectives = state.scope.generateUidIdentifier("withDirectives")
-      this.withContext = state.scope.generateUidIdentifier("withContext")
-      this.componentObj = state.scope.generateUidIdentifier("componentObj")
+      const { scope, path: rootPath } = state;
 
-      state.path.unshiftContainer('body', t.importDeclaration(
+      this.createElement = scope.generateUidIdentifier("createElement")
+      this.createComponent = scope.generateUidIdentifier("createComponent")
+      this.withDirectives = scope.generateUidIdentifier("withDirectives")
+      this.withContext = scope.generateUidIdentifier("withContext")
+
+      rootPath.unshiftContainer('body', hoistNode(t.importDeclaration(
         [
           t.importSpecifier(this.createElement, t.identifier("createElement")),
           t.importSpecifier(this.createComponent, t.identifier("createComponent")),
@@ -766,31 +26,120 @@ export default function ({ types: t }, returnState = {}) {
           t.importSpecifier(this.withContext, t.identifier("withContext"))
         ],
         t.stringLiteral("noctes.jsx")
-      ))
+      ), 3))
 
-      const self = this;
+      this.srcMap = new Map();
 
-      state.path.traverse({
-        ExportDefaultDeclaration(path) {
-          if (!t.isObjectExpression(path.node.declaration)) {
-            if (t.isIdentifier(path.node.declaration)) {
-              self.componentObj = path.node.declaration
-            }
-            return;
-          }
+      const exportDefault = rootPath.get("body").find(p => {
+        return p.isExportDefaultDeclaration()
+      });
 
-          path.replaceWithMultiple([
-            t.variableDeclaration("const", [
-              t.variableDeclarator(self.componentObj, path.node.declaration)
-            ]),
-            t.exportDefaultDeclaration(self.componentObj)
-          ])
-        }
+      if (!exportDefault) return;
+
+      hoistNode(exportDefault.node, -1);
+
+      const exportDecleration = exportDefault.get("declaration");
+      let componentBinding;
+
+      if (exportDecleration.isIdentifier()) {
+        this.componentObj = exportDecleration.node;
+        (componentBinding = scope.getBinding(exportDecleration.node.name)) && (componentBinding = componentBinding.path.get("init"));
+      } else if (exportDecleration.isObjectExpression()) {
+        this.componentObj = scope.generateUidIdentifier("componentObj");
+
+        exportDefault.node.declaration = this.componentObj;
+
+        scope.push({
+          kind: "const",
+          id: this.componentObj,
+          init: exportDecleration.node,
+          _blockHoist: 0
+        })
+
+        componentBinding = exportDecleration;
+      }
+
+      if (!componentBinding) return;
+      if (!componentBinding.node) throw Error("Internal Error");
+      if (
+        !t.isObjectExpression(componentBinding.node)
+      ) return;
+
+      let renderPath = componentBinding.get("properties").findLast(p => {
+        const node = p.node;
+
+        if (t.isSpreadElement(node)) return false;
+        if (!t.isIdentifier(node.key)) return false;
+
+        return node.key.name === 'render'
       })
+
+      if (!renderPath) return;
+
+      let renderFn = renderPath.node;
+
+      if (!renderFn) return;
+
+      if (t.isObjectMethod(renderFn) && renderFn.kind === "method") {
+        renderFn = renderFn;
+        this.renderPath = renderPath;
+      } else if (t.isObjectProperty(renderFn) && (t.isArrowFunctionExpression(renderFn.value) || t.isFunctionExpression(renderFn.value))) {
+        renderFn = renderFn.value;
+        this.renderPath = renderPath.get("value");
+      } else {
+        renderFn = null;
+      }
+
+      if (renderFn === null) {
+        warn({
+          loc: renderPath.isObjectMethod() ? renderPath.node.loc : renderPath.node.value.loc,
+          file: this.file,
+          warnLabel: "CorruptComponentDefinition",
+          message: "Render was not a method. Treating file as non-component."
+        })
+        return;
+      }
+
+      if (renderFn.params.length < 3) {
+        for (var i = renderFn.params.length; i < 3; i++) {
+          const skipParam = scope.generateUidIdentifier("unused");
+
+          renderFn.params.push(skipParam);
+        }
+      }
+
+      if (renderFn.params.length < 4) {
+        this.functionCount = 0;
+        this.functionCache = scope.generateUidIdentifier("fnCache");
+        renderFn.params.push(this.functionCache);
+      } else {
+        warn({
+          loc: renderFn.params[3].loc,
+          file: this.file,
+          warnLabel: "PerfWarning",
+          message: "Function Cache has been declared inside of Component, automatic caching has been disabled."
+        })
+      }
+
+      const renderDef = renderPath.node;
+      this.renderFn = renderFn;
+      this.renderPath[cacheCheckpoint] = false;
+
+      returnState.isComponent = true;
+      returnState.componentObj = this.componentObj.name;
+
+      scope.crawl();
+
+      // We calculate the AST Hash before transforming JSX, because the JSX elements may hoist properties, etc. which changes the AST even tho it's just related to render.
+      returnState.astHash = hashAst(
+        state.ast.program,
+        renderDef
+      );
     },
 
-    post() {
-      returnState.componentObj = this.componentObj.name;
+    visitor: {
+      JSXElement: transformJSXElement,
+      JSXFragment: transformJSXFragment
     }
   }
 }

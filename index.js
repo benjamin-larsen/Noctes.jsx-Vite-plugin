@@ -1,9 +1,10 @@
 import babelPlugin from "./babel-plugin.js"
 import { transformSync } from "@babel/core"
-import { createHash } from "crypto"
+import { createHash } from "node:crypto"
 
 export default function plugin() {
   let config = {};
+  const compMap = new Map();
 
   return {
     name: 'vite:noctes.jsx',
@@ -30,14 +31,29 @@ export default function plugin() {
         transformed
       ]
 
-      if (config.mode === "development" && config.server && config.server.hmr !== false) {
+      if (
+        returnState.isComponent &&
+        config.mode === "development" &&
+        config.server &&
+        config.server.hmr !== false
+      ) {
+        const prevAST = compMap.get(id);
+        compMap.set(id, returnState.astHash);
+
+        const renderOnly = returnState.astHash === prevAST;
+
+        if (renderOnly) {
+          output.push(`${returnState.componentObj}._onlyRender = true`)
+        }
+
         const hmrId = createHash('sha256').update(id).digest('hex')
 
-        output.push(`\n${returnState.componentObj}._hmrid = ${JSON.stringify(hmrId)}`)
-        output.push(`\nwindow.HMR.componentMap.set(${JSON.stringify(hmrId)}, ${returnState.componentObj})`)
+        output.push(`${returnState.componentObj}._hmrid = ${JSON.stringify(hmrId)}`)
+        output.push(`window.HMR.componentMap.set(${JSON.stringify(hmrId)}, ${returnState.componentObj})`)
         output.push(
           `import.meta.hot.accept(mod => {`,
           `  if (!mod) return`,
+          `  if (!mod.default || mod.default._hmrid !== ${JSON.stringify(hmrId)}) return import.meta.hot.invalidate()`,
           `  window.HMR.hotUpdate(${JSON.stringify(hmrId)}, mod.default)`,
           `})`
         )

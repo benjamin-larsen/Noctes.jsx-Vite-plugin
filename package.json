@@ -21,9 +21,12 @@
     "noctes.jsx": ">=1.0.0"
   },
   "dependencies": {
-    "@babel/core": "^7.28.4",
-    "@babel/parser": "^7.28.4",
+    "@babel/code-frame": "^7.27.1",
+    "@babel/core": "^7.28.5",
+    "@babel/parser": "^7.28.5",
     "@babel/plugin-syntax-jsx": "^7.27.1",
+    "@babel/traverse": "^7.28.5",
+    "@babel/types": "^7.28.5",
     "entities": "5.0.0"
   }
 }
