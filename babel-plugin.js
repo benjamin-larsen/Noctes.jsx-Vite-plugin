@@ -15,6 +15,7 @@ export default function (api, returnState = {}) {
 
       this.createElement = scope.generateUidIdentifier("createElement")
       this.createComponent = scope.generateUidIdentifier("createComponent")
+      this.createTeleport = scope.generateUidIdentifier("createTeleport")
       this.withDirectives = scope.generateUidIdentifier("withDirectives")
       this.withContext = scope.generateUidIdentifier("withContext")
 
@@ -22,6 +23,7 @@ export default function (api, returnState = {}) {
         [
           t.importSpecifier(this.createElement, t.identifier("createElement")),
           t.importSpecifier(this.createComponent, t.identifier("createComponent")),
+          t.importSpecifier(this.createTeleport, t.identifier("createTeleport")),
           t.importSpecifier(this.withDirectives, t.identifier("withDirectives")),
           t.importSpecifier(this.withContext, t.identifier("withContext"))
         ],

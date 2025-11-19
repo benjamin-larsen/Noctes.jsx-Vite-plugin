@@ -40,6 +40,13 @@ function resolveTagName(node, state) {
     }
   }
 
+  if (tagName.name === "Teleport") {
+    return {
+      name: "Teleport",
+      type: elementTypes.teleport
+    }
+  }
+
   const type = resolveElementType(tagName.name);
 
   if (type === elementTypes.component && tagName.name === "Recursive") {
@@ -63,8 +70,8 @@ function resolveTagName(node, state) {
   return {
     name: type === elementTypes.component ? (
       tagName.name in standardComponents ?
-      t.stringLiteral(tagName.name) :
-      t.identifier(tagName.name)
+        t.stringLiteral(tagName.name) :
+        t.identifier(tagName.name)
     ) : tagName.name,
     type
   };
@@ -419,6 +426,95 @@ function transformElement({
   )
 }
 
+function transformTeleportOptions(attributes, state) {
+  let dedupe = new Set();
+  let props = [];
+  let isStatic = true;
+  let hasSpreadAttr = false;
+
+  for (const attrNode of attributes) {
+    if (t.isJSXSpreadAttribute(attrNode)) {
+      hasSpreadAttr = true;
+      isStatic = false;
+      props.push(
+        t.spreadElement(attrNode.argument)
+      )
+      continue;
+    }
+
+    if (!t.isJSXAttribute(attrNode)) continue;
+
+    const { name: _attrName, value: _attrValue } = attrNode;
+    let attrName;
+
+    if (t.isJSXNamespacedName(_attrName)) {
+      attrName = `${_attrName.namespace.name}:${_attrName.name.name}`;
+    } else {
+      attrName = _attrName.name;
+    }
+
+    if (dedupe.has(attrName)) throwError({
+      loc: _attrName.loc,
+      file: state.file,
+      message: `Duplicate option "${attrName}".`,
+      errType: TransformError
+    });
+
+    dedupe.add(attrName);
+
+    if (t.isJSXExpressionContainer(_attrValue) && !isLiteral(_attrValue.expression)) {
+      isStatic = false;
+    }
+
+    const attrValue = transformJSXAttributeValue(_attrValue, true);
+
+    props.push(
+      t.objectProperty(
+        t.stringLiteral(attrName),
+        attrValue
+      )
+    )
+  }
+
+  return {
+    opts: isStatic ? hoistProperties(props, state) : t.objectExpression(props),
+    rawOpts: props,
+    hasSpreadAttr
+  }
+}
+
+function transformTeleport(path, state) {
+  const { node } = path;
+  const { opts, rawOpts, hasSpreadAttr } = transformTeleportOptions(
+    node.openingElement.attributes,
+    state
+  );
+
+  const toOpt = rawOpts.find(opt => opt.key && opt.key.value === "to");
+
+  if (!toOpt && !hasSpreadAttr) {
+    throwError({
+      loc: {
+        start: {
+          line: node.openingElement.name.loc.end.line,
+          column: node.openingElement.name.loc.end.column - 1
+        }
+      },
+      displayColumnOffset: 1,
+      file: state.file,
+      message: `The option "to" must be specified on <Teleport>`,
+      errType: TransformError
+    });
+  }
+
+  path.replaceWith(
+    t.callExpression(state.createTeleport, [
+      opts,
+      t.arrayExpression(transformJSXChildren(node.children))
+    ])
+  )
+}
+
 export default function transformJSXElement(path, state) {
   const hasCache = state.functionCache && path.scope.hasBinding(state.functionCache.name);
 
@@ -427,7 +523,9 @@ export default function transformJSXElement(path, state) {
     type
   } = resolveTagName(path.node.openingElement, state);
 
-  if (type === elementTypes.element) {
+  if (type === elementTypes.teleport) {
+    transformTeleport(path, state)
+  } else if (type === elementTypes.element) {
     transformElement({
       path,
       hasCache,
