@@ -29,7 +29,8 @@ export const srcResolveTags = {
 export const elementTypes = {
   element: 0,
   component: 1,
-  dynamicComponent: 2
+  dynamicComponent: 2,
+  teleport: 3
 }
 
 export const cacheCheckpoint = Symbol("cache_checkpoint")
