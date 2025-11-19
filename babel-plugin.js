@@ -58,7 +58,7 @@ export default function (api, returnState = {}) {
       }
 
       if (!componentBinding) return;
-      if (!componentBinding || !componentBinding.node) throw Error("Internal Error");
+      if (!componentBinding.node) throw Error("Internal Error");
       if (
         !t.isObjectExpression(componentBinding.node)
       ) return;

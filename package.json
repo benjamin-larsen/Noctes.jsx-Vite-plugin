@@ -21,6 +21,7 @@
     "noctes.jsx": ">=1.0.0"
   },
   "dependencies": {
+    "@babel/code-frame": "^7.27.1",
     "@babel/core": "^7.28.5",
     "@babel/parser": "^7.28.5",
     "@babel/plugin-syntax-jsx": "^7.27.1",

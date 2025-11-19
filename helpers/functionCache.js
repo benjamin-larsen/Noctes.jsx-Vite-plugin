@@ -1,4 +1,5 @@
 import t from '@babel/types';
+import { warn } from './error.js';
 
 export function transformFunction(fn, state) {
   if (!state.functionCache) return fn;
@@ -49,13 +50,16 @@ export function shouldTransformFunction({
       if (bindingParent == state.renderPath) {
         shouldTransform = false;
         path.stop();
+
+        warn({
+          loc: path.node.loc,
+          file: state.file,
+          warnLabel: "PerfWarning",
+          message: `Event Listener "${eventName}" referenced variable declared in render(), function is not able to be cached. This will incur a performance penalty.`
+        })
       }
     }
   })
-
-  if (!shouldTransform) {
-    console.warn(`Event Listener "${eventName}" references variables declared in render, function is not able to be cached. This will incur a performance penalty.`)
-  }
 
   return shouldTransform;
 }

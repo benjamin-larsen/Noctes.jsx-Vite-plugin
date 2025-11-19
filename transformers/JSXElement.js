@@ -7,6 +7,7 @@ import { sanatizeTemplateString } from '../helpers/templateString.js';
 import { transformFunction, shouldTransformFunction } from '../helpers/functionCache.js';
 import { resolveReactAlias } from '../react-alias.js';
 import { transformSlots } from './Slots.js';
+import { throwError, TransformError } from '../helpers/error.js';
 
 function resolveElementType(tag) {
   if (tag === "component") return elementTypes.dynamicComponent;
@@ -23,7 +24,9 @@ function resolveMemberExpression(expr) {
   )
 }
 
-function resolveTagName(tagName, state) {
+function resolveTagName(node, state) {
+  const { name: tagName } = node;
+
   if (t.isJSXNamespacedName(tagName)) {
     return {
       name: `${tagName.namespace.name}:${tagName.name.name}`,
@@ -39,7 +42,16 @@ function resolveTagName(tagName, state) {
   const type = resolveElementType(tagName.name);
 
   if (type === elementTypes.component && tagName.name === "Recursive") {
-    if (!state.componentObj || !state.renderPath) throw Error("<Recursive> can only be used in Component Files.");
+    if (!state.componentObj || !state.renderPath) throwError({
+      loc: node.loc,
+      offset: {
+        line: 1,
+        column: 1
+      },
+      file: state.file,
+      message: "<Recursive> can only be used in Component Files.",
+      errType: TransformError
+    });
 
     return {
       name: state.componentObj,
@@ -208,6 +220,7 @@ function transformProperties({
   hasCache
 }, state) {
   const isElement = type === elementTypes.element;
+  const isComponent = !isElement;
 
   let directives = [];
   let props = [];
@@ -216,6 +229,7 @@ function transformProperties({
   const srcsetTag = isElement && srcsetResolveTags[elName] || undefined;
   const srcTag = isElement && srcResolveTags[elName] || [];
   let componentExpression = null;
+  let nSlot = null;
 
   for (const attr of attributes) {
     const { node: attrNode } = attr;
@@ -259,6 +273,10 @@ function transformProperties({
       continue;
     }
 
+    if (isComponent && attrName === "nSlot") {
+
+    }
+
     if (t.isJSXExpressionContainer(_attrValue) && !isLiteral(_attrValue.expression)) {
       isStatic = false;
     }
@@ -266,7 +284,18 @@ function transformProperties({
     let attrValue;
 
     if (isEvent(attrName)) {
-      if (_attrValue === null || !t.isJSXExpressionContainer(_attrValue)) throw Error("Invalid Event Listener: expected Function or Identifier.");
+      if (_attrValue === null || !t.isJSXExpressionContainer(_attrValue)) throwError({
+        loc: _attrValue ? _attrValue.loc : {
+          start: {
+            line: attrNode.loc.end.line,
+            column: attrNode.loc.end.column - 1
+          }
+        },
+        displayColumnOffset: _attrValue ? 0 : 1,
+        file: state.file,
+        message: "Invalid Event Listener: expected Function or Identifier.",
+        errType: TypeError
+      });
 
       const isFunction = t.isFunctionExpression(_attrValue.expression) || t.isArrowFunctionExpression(_attrValue.expression);
       const isIdentifier = t.isIdentifier(_attrValue.expression) || t.isMemberExpression(_attrValue.expression) || t.isOptionalMemberExpression(_attrValue.expression);
@@ -279,7 +308,12 @@ function transformProperties({
       } else if (isIdentifier) {
         attrValue = _attrValue.expression;
       } else {
-        throw Error("Invalid Event Listener: expected Function.")
+        throwError({
+          loc: _attrValue.expression.loc,
+          file: state.file,
+          message: "Invalid Event Listener: expected Function or Identifier.",
+          errType: TypeError
+        });
       }
     } else if (t.isStringLiteral(_attrValue)) {
       if (srcsetTag === attrName.toLowerCase()) {
@@ -304,7 +338,8 @@ function transformProperties({
   return {
     props: props.length == 0 ? t.nullLiteral() : isStatic ? hoistProperties(props, state) : t.objectExpression(props),
     directives,
-    componentExpression
+    componentExpression,
+    nSlot
   }
 }
 
@@ -322,7 +357,18 @@ function transformComponent({
     hasCache
   }, state);
 
-  if (type === elementTypes.dynamicComponent && !componentExpression) throw Error("You must specify 'is' property on Dynamic Components.")
+  if (type === elementTypes.dynamicComponent && !componentExpression) throwError({
+    loc: {
+      start: {
+        line: node.openingElement.name.loc.end.line,
+        column: node.openingElement.name.loc.end.column - 1
+      }
+    },
+    displayColumnOffset: 1,
+    file: state.file,
+    message: "You must specify 'is' property on Dynamic Components.",
+    errType: TransformError
+  });
 
   path.replaceWith(t.callExpression(state.createComponent, [
     type === elementTypes.dynamicComponent ? componentExpression : name,
@@ -365,7 +411,7 @@ export default function transformJSXElement(path, state) {
   const {
     name,
     type
-  } = resolveTagName(path.node.openingElement.name, state);
+  } = resolveTagName(path.node.openingElement, state);
 
   if (type === elementTypes.element) {
     transformElement({
