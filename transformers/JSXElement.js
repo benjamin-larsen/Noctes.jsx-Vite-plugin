@@ -8,7 +8,7 @@ import { transformFunction, shouldTransformFunction } from '../helpers/functionC
 import { resolveReactAlias } from '../react-alias.js';
 import { transformSlots, applySlotCache } from './Slots.js';
 import { throwError, TransformError } from '../helpers/error.js';
-import standardComponents from 'noctes.jsx/framework/standardComponents/index.js'
+import standardComponents from 'noctes.jsx/framework/standardComponents/componentList.js'
 
 function resolveElementType(tag) {
   if (tag === "component") return elementTypes.dynamicComponent;
@@ -69,7 +69,7 @@ function resolveTagName(node, state) {
 
   return {
     name: type === elementTypes.component ? (
-      tagName.name in standardComponents ?
+      standardComponents.has(tagName.name) ?
         t.stringLiteral(tagName.name) :
         t.identifier(tagName.name)
     ) : tagName.name,
