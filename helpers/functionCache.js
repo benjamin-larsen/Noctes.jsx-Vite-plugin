@@ -43,7 +43,7 @@ export function shouldTransformFunction({
   if (hasOverride) {
     const shouldTransform = commentCommands.includes("@cache") ? true : false;
 
-    fn[cacheCheckpoint] = shouldTransform;
+    fn[cacheCheckpoint] = false;
     return shouldTransform;
   }
 
@@ -73,7 +73,7 @@ export function shouldTransformFunction({
     }
   })
 
-  fn[cacheCheckpoint] = shouldTransform;
+  fn[cacheCheckpoint] = false;
 
   return shouldTransform;
 }
