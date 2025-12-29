@@ -1,6 +1,6 @@
 {
   "name": "noctes.jsx-vite-plugin",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Vite Plugin for Noctes.jsx",
   "main": "index.js",
   "type": "module",
@@ -9,14 +9,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/benjamin-larsen/Noctes.jsx.git"
+    "url": "git+https://github.com/benjamin-larsen/Noctes.jsx-Vite-plugin.git"
   },
   "author": "Benjamin Larsen",
   "license": "AGPL-3.0",
   "bugs": {
-    "url": "https://github.com/benjamin-larsen/Noctes.jsx/issues"
+    "url": "https://github.com/benjamin-larsen/Noctes.jsx-Vite-plugin/issues"
   },
-  "homepage": "https://github.com/benjamin-larsen/Noctes.jsx#readme",
+  "homepage": "https://github.com/benjamin-larsen/Noctes.jsx-Vite-plugin#readme",
   "peerDependencies": {
     "noctes.jsx": ">=1.0.0"
   },
